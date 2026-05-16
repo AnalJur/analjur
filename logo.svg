@@ -1,0 +1,114 @@
+<svg width="820" height="240" viewBox="0 0 820 240" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="820" y2="240" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#16284A"/>
+      <stop offset="100%" stop-color="#080F1E"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="20" x2="0" y2="220" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#F0D98A"/>
+      <stop offset="45%"  stop-color="#C9883E"/>
+      <stop offset="100%" stop-color="#8A5A10"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="120" cy="120" r="110" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#1C3A70" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#080F1E" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="820" height="240" rx="16" fill="url(#bg)"/>
+
+  <!-- Emblem glow -->
+  <circle cx="120" cy="120" r="110" fill="url(#glow)"/>
+
+  <!-- Emblem outer ring -->
+  <circle cx="120" cy="120" r="104" fill="none" stroke="url(#gold)" stroke-width="2.5"/>
+  <!-- Emblem inner ring -->
+  <circle cx="120" cy="120" r="94"  fill="none" stroke="#C4882A" stroke-width="0.7" opacity="0.35"/>
+
+  <!-- ══════════ SCALES (centered at 120,120) ══════════ -->
+
+  <!-- Crown ornament -->
+  <circle cx="120" cy="34"  r="9"   fill="url(#gold)"/>
+  <circle cx="120" cy="34"  r="5.5" fill="#0D1829"/>
+  <circle cx="120" cy="34"  r="2.8" fill="url(#gold)"/>
+
+  <!-- Pillar -->
+  <rect x="116.5" y="42" width="7" height="158" rx="3.5" fill="url(#gold)"/>
+
+  <!-- Beam -->
+  <rect x="52" y="99" width="136" height="7" rx="3.5" fill="url(#gold)"/>
+
+  <!-- Beam end knobs -->
+  <circle cx="56"  cy="102" r="6.5" fill="#B07820"/>
+  <circle cx="184" cy="102" r="6.5" fill="#B07820"/>
+
+  <!-- Left chain -->
+  <line x1="56"  y1="109" x2="56"  y2="138" stroke="#C4882A" stroke-width="2.5" stroke-linecap="round"/>
+  <!-- Right chain -->
+  <line x1="184" y1="109" x2="184" y2="138" stroke="#C4882A" stroke-width="2.5" stroke-linecap="round"/>
+
+  <!-- Left pan -->
+  <path d="M 34 138 Q 56 160 78 138"
+        fill="none" stroke="url(#gold)" stroke-width="4" stroke-linecap="round"/>
+  <line x1="34" y1="138" x2="78" y2="138"
+        stroke="#C4882A" stroke-width="1.2" opacity="0.4"/>
+
+  <!-- Right pan -->
+  <path d="M 162 138 Q 184 160 206 138"
+        fill="none" stroke="url(#gold)" stroke-width="4" stroke-linecap="round"/>
+  <line x1="162" y1="138" x2="206" y2="138"
+        stroke="#C4882A" stroke-width="1.2" opacity="0.4"/>
+
+  <!-- Pillar base -->
+  <rect x="113" y="198" width="14" height="5"  rx="2.5" fill="url(#gold)"/>
+  <rect x="106" y="203" width="28" height="4"  rx="2"   fill="#B07820"/>
+  <rect x="98"  y="207" width="44" height="3"  rx="1.5" fill="#8A5A10" opacity="0.85"/>
+
+  <!-- Diamond ornaments on emblem ring (top & bottom) -->
+  <polygon points="120,14 123,20 120,26 117,20" fill="#C4882A" opacity="0.65"/>
+  <polygon points="120,214 123,220 120,226 117,220" fill="#C4882A" opacity="0.65"/>
+
+  <!-- Vertical divider -->
+  <line x1="244" y1="36" x2="244" y2="204"
+        stroke="#C4882A" stroke-width="0.9" opacity="0.45"/>
+
+  <!-- Diamond on divider -->
+  <polygon points="244,116 248,122 244,128 240,122" fill="#C4882A" opacity="0.5"/>
+
+  <!-- ══════════ WORDMARK ══════════ -->
+
+  <!-- "ANAL" + "JUR" — two tspans for color split -->
+  <text x="274" y="118"
+        font-family="Georgia, 'Times New Roman', serif"
+        font-size="62"
+        font-weight="400"
+        letter-spacing="7">
+    <tspan fill="#F4EDE0">ANAL</tspan><tspan fill="#C9883E">JUR</tspan>
+  </text>
+
+  <!-- Thin rule below wordmark -->
+  <line x1="274" y1="136" x2="790" y2="136"
+        stroke="#C4882A" stroke-width="0.9" opacity="0.5"/>
+
+  <!-- Diamond ornament on rule -->
+  <polygon points="532,130 536,136 532,142 528,136" fill="#C4882A" opacity="0.55"/>
+
+  <!-- Tagline -->
+  <text x="274" y="165"
+        font-family="'Helvetica Neue', Helvetica, Arial, sans-serif"
+        font-size="12.5"
+        font-weight="300"
+        letter-spacing="5.5"
+        fill="#C4882A">ANÁLISE PROCESSUAL · INTELIGÊNCIA ARTIFICIAL</text>
+
+  <!-- Subtle tagline 2 (optional legal descriptor) -->
+  <text x="274" y="194"
+        font-family="'Helvetica Neue', Helvetica, Arial, sans-serif"
+        font-size="10"
+        font-weight="300"
+        letter-spacing="3"
+        fill="#6B8ABF"
+        opacity="0.7">RAG JURÍDICO · VOYAGE-LAW-2 · CLAUDE AI</text>
+
+</svg>

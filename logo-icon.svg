@@ -1,0 +1,56 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1E3258"/>
+      <stop offset="100%" stop-color="#0D1B30"/>
+    </linearGradient>
+
+    <!-- A triangle clip -->
+    <clipPath id="aClip">
+      <polygon points="256,68 105,350 407,350"/>
+    </clipPath>
+  </defs>
+
+  <!-- Background -->
+  <rect width="512" height="512" rx="108" fill="url(#bg)"/>
+
+  <!-- ════ A LETTERFORM — horizontal stripes clipped to triangle ════ -->
+  <g clip-path="url(#aClip)">
+    <rect x="76" y="68"  width="360" height="19" fill="#C4A850"/>
+    <rect x="76" y="95"  width="360" height="19" fill="#C4A850"/>
+    <rect x="76" y="122" width="360" height="19" fill="#C4A850"/>
+    <rect x="76" y="149" width="360" height="19" fill="#C4A850"/>
+    <rect x="76" y="176" width="360" height="19" fill="#C4A850"/>
+    <rect x="76" y="203" width="360" height="19" fill="#C4A850"/>
+    <rect x="76" y="230" width="360" height="19" fill="#C4A850"/>
+    <rect x="76" y="257" width="360" height="19" fill="#C4A850"/>
+    <rect x="76" y="284" width="360" height="19" fill="#C4A850"/>
+    <rect x="76" y="311" width="360" height="19" fill="#C4A850"/>
+    <rect x="76" y="338" width="360" height="19" fill="#C4A850"/>
+  </g>
+
+  <!-- A base serifs -->
+  <rect x="88"  y="349" width="76" height="17" rx="4" fill="#C4A850"/>
+  <rect x="348" y="349" width="76" height="17" rx="4" fill="#C4A850"/>
+
+  <!-- ════ J LETTERFORM ════ -->
+  <!-- J main body: stem + curve + foot -->
+  <path d="M 406 100 L 406 330 Q 406 394 350 396 L 304 396"
+        fill="none" stroke="#C4A850" stroke-width="42"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- J top serif -->
+  <rect x="382" y="82" width="68" height="24" rx="7" fill="#C4A850"/>
+
+  <!-- ════ GAVEL ════ -->
+  <!-- Rotated -29° around center (288,38) — head right, handle lower-left -->
+  <g transform="rotate(-29, 288, 38)">
+    <!-- Handle (extends LEFT from head) -->
+    <rect x="158" y="31" width="132" height="12" rx="6" fill="#C4A850"/>
+    <!-- Head (mallet block) -->
+    <rect x="258" y="22" width="68" height="30" rx="6" fill="#C4A850"/>
+    <!-- Head detail lines -->
+    <rect x="263" y="25" width="3" height="24" rx="1.5" fill="#A07820" opacity="0.55"/>
+    <rect x="272" y="25" width="3" height="24" rx="1.5" fill="#A07820" opacity="0.55"/>
+  </g>
+
+</svg>

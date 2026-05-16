@@ -1,0 +1,7 @@
+# Coloque seus assets estáticos aqui:
+#
+# logo-icon.svg  — ícone quadrado usado na sidebar e tela de login (ex: 32x32 ou 40x40)
+# logo.svg       — logotipo completo (horizontal, usado opcionalmente em outros lugares)
+# favicon.svg    — ícone do browser (referenciado no layout.tsx)
+#
+# Todos os três arquivos SVG devem ser colocados diretamente nesta pasta /public/.
