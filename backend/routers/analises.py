@@ -1,11 +1,9 @@
 import uuid
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from datetime import datetime, timezone
+from fastapi import APIRouter, HTTPException, Query
 
-from ..database import get_db
-from ..models import Analise
+from ..database import get_supabase, sb_run
 from ..schemas import AnaliseSolicitacao, AnaliseOut, ChatRequest, ChatResponse
 from ..services.analise_ia import gerar_analise, chat_processo
 from ..services import audit_svc
@@ -16,104 +14,103 @@ settings = get_settings()
 DEFAULT_USER = uuid.UUID(settings.default_usuario_id)
 
 
+def _utcnow() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
 @router.get("", response_model=list[AnaliseOut])
-async def listar_analises(
-    processo_id: uuid.UUID,
-    tipo: Optional[str] = Query(None),
-    db: AsyncSession = Depends(get_db),
-):
-    q = select(Analise).where(Analise.processo_id == processo_id)
+async def listar_analises(processo_id: uuid.UUID, tipo: Optional[str] = Query(None)):
+    sb = get_supabase()
+    q = sb.table("analises").select("*").eq("processo_id", str(processo_id))
     if tipo:
-        q = q.where(Analise.tipo == tipo)
-    q = q.order_by(Analise.created_at.desc())
-    result = await db.execute(q)
-    return result.scalars().all()
+        q = q.eq("tipo", tipo)
+    q = q.order("created_at", desc=True)
+    result = await sb_run(q.execute)
+    return result.data
 
 
 @router.post("", response_model=AnaliseOut, status_code=201)
-async def solicitar_analise(
-    processo_id: uuid.UUID,
-    body: AnaliseSolicitacao,
-    db: AsyncSession = Depends(get_db),
-):
+async def solicitar_analise(processo_id: uuid.UUID, body: AnaliseSolicitacao):
     try:
         analise = await gerar_analise(
-            db, processo_id, body.tipo,
+            processo_id, body.tipo,
             usuario_id=DEFAULT_USER,
             contexto_extra=body.contexto_extra,
         )
     except ValueError as e:
         raise HTTPException(400, str(e))
 
-    await audit_svc.registrar(db, "criar", "analise", analise.id,
+    await audit_svc.registrar("criar", "analise", analise["id"],
                                dados_depois={"tipo": body.tipo}, usuario_id=DEFAULT_USER)
-    await db.commit()
-    await db.refresh(analise)
     return analise
 
 
 @router.get("/{analise_id}", response_model=AnaliseOut)
-async def obter_analise(
-    processo_id: uuid.UUID, analise_id: uuid.UUID, db: AsyncSession = Depends(get_db)
-):
-    analise = await db.get(Analise, analise_id)
-    if not analise or analise.processo_id != processo_id:
+async def obter_analise(processo_id: uuid.UUID, analise_id: uuid.UUID):
+    sb = get_supabase()
+    result = await sb_run(
+        lambda: sb.table("analises").select("*")
+        .eq("id", str(analise_id))
+        .eq("processo_id", str(processo_id))
+        .limit(1)
+        .execute()
+    )
+    if not result.data:
         raise HTTPException(404, "Análise não encontrada")
-    return analise
+    return result.data[0]
 
 
 @router.post("/{analise_id}/aprovar", response_model=AnaliseOut)
-async def aprovar_analise(
-    processo_id: uuid.UUID, analise_id: uuid.UUID,
-    comentario: Optional[str] = None,
-    db: AsyncSession = Depends(get_db),
-):
-    analise = await db.get(Analise, analise_id)
-    if not analise or analise.processo_id != processo_id:
+async def aprovar_analise(processo_id: uuid.UUID, analise_id: uuid.UUID,
+                           comentario: Optional[str] = None):
+    sb = get_supabase()
+    upd_data = {
+        "status_revisao": "aprovada",
+        "revisado_por": str(DEFAULT_USER),
+        "revisado_at": _utcnow(),
+    }
+    if comentario:
+        upd_data["comentario_revisao"] = comentario
+
+    result = await sb_run(
+        lambda: sb.table("analises").update(upd_data)
+        .eq("id", str(analise_id))
+        .eq("processo_id", str(processo_id))
+        .execute()
+    )
+    if not result.data:
         raise HTTPException(404, "Análise não encontrada")
 
-    from datetime import datetime
-    analise.status_revisao = "aprovada"
-    analise.revisado_por = DEFAULT_USER
-    analise.revisado_at = datetime.utcnow()
-    if comentario:
-        analise.comentario_revisao = comentario
-
-    await audit_svc.registrar(db, "aprovar", "analise", analise_id,
+    await audit_svc.registrar("aprovar", "analise", analise_id,
                                dados_depois={"status": "aprovada"}, usuario_id=DEFAULT_USER)
-    await db.commit()
-    await db.refresh(analise)
-    return analise
+    return result.data[0]
 
 
 @router.post("/{analise_id}/rejeitar", response_model=AnaliseOut)
-async def rejeitar_analise(
-    processo_id: uuid.UUID, analise_id: uuid.UUID,
-    comentario: str,
-    db: AsyncSession = Depends(get_db),
-):
-    analise = await db.get(Analise, analise_id)
-    if not analise or analise.processo_id != processo_id:
+async def rejeitar_analise(processo_id: uuid.UUID, analise_id: uuid.UUID, comentario: str):
+    sb = get_supabase()
+    result = await sb_run(
+        lambda: sb.table("analises").update({
+            "status_revisao": "rejeitada",
+            "revisado_por": str(DEFAULT_USER),
+            "revisado_at": _utcnow(),
+            "comentario_revisao": comentario,
+        })
+        .eq("id", str(analise_id))
+        .eq("processo_id", str(processo_id))
+        .execute()
+    )
+    if not result.data:
         raise HTTPException(404, "Análise não encontrada")
 
-    from datetime import datetime
-    analise.status_revisao = "rejeitada"
-    analise.revisado_por = DEFAULT_USER
-    analise.revisado_at = datetime.utcnow()
-    analise.comentario_revisao = comentario
-
-    await audit_svc.registrar(db, "rejeitar", "analise", analise_id,
+    await audit_svc.registrar("rejeitar", "analise", analise_id,
                                dados_depois={"status": "rejeitada", "comentario": comentario},
                                usuario_id=DEFAULT_USER)
-    await db.commit()
-    await db.refresh(analise)
-    return analise
+    return result.data[0]
 
-
-# ── Chat ──────────────────────────────────────────────────────────────────
 
 @router.post("/chat", response_model=ChatResponse, tags=["Chat"])
-async def chat(body: ChatRequest, db: AsyncSession = Depends(get_db)):
+async def chat(body: ChatRequest):
     try:
         resposta, fontes, tokens = await chat_processo(
             processo_id=body.processo_id,

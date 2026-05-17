@@ -1,12 +1,9 @@
 import uuid
 from typing import Optional
-from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from datetime import datetime, timezone
+from fastapi import APIRouter, HTTPException, Query
 
-from ..database import get_db
-from ..models import TarefaRevisao
+from ..database import get_supabase, sb_run
 from ..schemas import TarefaCreate, TarefaUpdate, TarefaOut
 from ..services import audit_svc
 from ..config import get_settings
@@ -16,77 +13,89 @@ settings = get_settings()
 DEFAULT_USER = uuid.UUID(settings.default_usuario_id)
 
 
+def _utcnow() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
 @router.get("/tarefas", response_model=list[TarefaOut])
 async def listar_tarefas(
     status: Optional[str] = Query(None),
     processo_id: Optional[uuid.UUID] = Query(None),
     prioridade: Optional[str] = Query(None),
-    db: AsyncSession = Depends(get_db),
 ):
-    q = select(TarefaRevisao)
+    sb = get_supabase()
+    q = sb.table("tarefas_revisao").select("*")
     if status:
-        q = q.where(TarefaRevisao.status == status)
+        q = q.eq("status", status)
     if processo_id:
-        q = q.where(TarefaRevisao.processo_id == processo_id)
+        q = q.eq("processo_id", str(processo_id))
     if prioridade:
-        q = q.where(TarefaRevisao.prioridade == prioridade)
-    q = q.order_by(TarefaRevisao.created_at.desc()).limit(200)
-    result = await db.execute(q)
-    return result.scalars().all()
+        q = q.eq("prioridade", prioridade)
+    q = q.order("created_at", desc=True).limit(200)
+    result = await sb_run(q.execute)
+    return result.data
 
 
 @router.post("/tarefas", response_model=TarefaOut, status_code=201)
-async def criar_tarefa(body: TarefaCreate, db: AsyncSession = Depends(get_db)):
-    tarefa = TarefaRevisao(atribuido_por=DEFAULT_USER, **body.model_dump())
-    db.add(tarefa)
-    await db.commit()
-    await db.refresh(tarefa)
-    return tarefa
+async def criar_tarefa(body: TarefaCreate):
+    sb = get_supabase()
+    tarefa_data = {
+        "id": str(uuid.uuid4()),
+        "atribuido_por": str(DEFAULT_USER),
+        **{k: (str(v) if isinstance(v, uuid.UUID) else v)
+           for k, v in body.model_dump(exclude_none=True).items()},
+    }
+    result = await sb_run(lambda: sb.table("tarefas_revisao").insert(tarefa_data).execute())
+    return result.data[0]
 
 
 @router.get("/tarefas/{tarefa_id}", response_model=TarefaOut)
-async def obter_tarefa(tarefa_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
-    tarefa = await db.get(TarefaRevisao, tarefa_id)
-    if not tarefa:
+async def obter_tarefa(tarefa_id: uuid.UUID):
+    sb = get_supabase()
+    result = await sb_run(
+        lambda: sb.table("tarefas_revisao").select("*")
+        .eq("id", str(tarefa_id))
+        .limit(1)
+        .execute()
+    )
+    if not result.data:
         raise HTTPException(404, "Tarefa não encontrada")
-    return tarefa
+    return result.data[0]
 
 
 @router.patch("/tarefas/{tarefa_id}", response_model=TarefaOut)
-async def atualizar_tarefa(
-    tarefa_id: uuid.UUID, body: TarefaUpdate, db: AsyncSession = Depends(get_db)
-):
-    tarefa = await db.get(TarefaRevisao, tarefa_id)
-    if not tarefa:
+async def atualizar_tarefa(tarefa_id: uuid.UUID, body: TarefaUpdate):
+    sb = get_supabase()
+
+    dados = body.model_dump(exclude_none=True)
+    if body.status in ("aprovado", "rejeitado", "cancelado"):
+        dados["concluido_por"] = str(DEFAULT_USER)
+        dados["concluido_at"] = _utcnow()
+
+    upd = await sb_run(
+        lambda: sb.table("tarefas_revisao").update(dados)
+        .eq("id", str(tarefa_id))
+        .execute()
+    )
+    if not upd.data:
         raise HTTPException(404, "Tarefa não encontrada")
 
-    antes = {"status": tarefa.status}
-    for campo, valor in body.model_dump(exclude_none=True).items():
-        setattr(tarefa, campo, valor)
-
-    # Se aprovando ou rejeitando, registra quem e quando
-    if body.status in ("aprovado", "rejeitado", "cancelado"):
-        tarefa.concluido_por = DEFAULT_USER
-        tarefa.concluido_at = datetime.utcnow()
-
-    await audit_svc.registrar(db, "atualizar", "tarefa", tarefa_id,
-                               dados_antes=antes, dados_depois=body.model_dump(exclude_none=True),
-                               usuario_id=DEFAULT_USER)
-    await db.commit()
-    await db.refresh(tarefa)
-    return tarefa
+    await audit_svc.registrar("atualizar", "tarefa", tarefa_id,
+                               dados_depois=dados, usuario_id=DEFAULT_USER)
+    return upd.data[0]
 
 
 @router.get("/resumo")
-async def resumo_revisao(db: AsyncSession = Depends(get_db)):
-    """Contagem de tarefas por status — para dashboard operacional."""
-    from sqlalchemy import func, case
-    result = await db.execute(
-        select(
-            TarefaRevisao.status,
-            TarefaRevisao.prioridade,
-            func.count().label("total"),
-        ).group_by(TarefaRevisao.status, TarefaRevisao.prioridade)
+async def resumo_revisao():
+    sb = get_supabase()
+    result = await sb_run(
+        lambda: sb.table("tarefas_revisao").select("status,prioridade").execute()
     )
-    rows = result.all()
-    return [{"status": r.status, "prioridade": r.prioridade, "total": r.total} for r in rows]
+    contagem: dict = {}
+    for r in (result.data or []):
+        key = (r["status"], r["prioridade"])
+        contagem[key] = contagem.get(key, 0) + 1
+    return [
+        {"status": s, "prioridade": p, "total": t}
+        for (s, p), t in contagem.items()
+    ]

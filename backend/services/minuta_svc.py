@@ -1,22 +1,23 @@
 """
-Geração de minutas e documentos jurídicos assistida por IA.
-Todo output vai para revisão humana antes de qualquer uso externo.
+Geração de minutas e documentos jurídicos assistida por IA via supabase-py.
 """
 
 import uuid
-import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 import anthropic
-from sqlalchemy.ext.asyncio import AsyncSession
 from loguru import logger
 
-from ..models import Minuta, MinutaHistorico, TarefaRevisao, Analise
 from ..config import get_settings
+from ..database import get_supabase, sb_run
 from .rag import buscar_chunks, formatar_contexto
 
 settings = get_settings()
+
+
+def _utcnow() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 TEMPLATES = {
@@ -57,17 +58,17 @@ Indique o grau de certeza de cada conclusão.""",
 
 
 async def gerar_minuta(
-    db: AsyncSession,
     processo_id: uuid.UUID,
     tipo: str,
     titulo: str,
     instrucoes: Optional[str] = None,
     usuario_id: Optional[uuid.UUID] = None,
     analise_id: Optional[uuid.UUID] = None,
-) -> Minuta:
+) -> dict:
     if tipo not in TEMPLATES:
         raise ValueError(f"Tipo de minuta inválido: {tipo}")
 
+    sb = get_supabase()
     tpl = TEMPLATES[tipo]
     chunks = buscar_chunks(processo_id, tpl["query"], top_k=10)
     if not chunks:
@@ -94,66 +95,73 @@ async def gerar_minuta(
 
     conteudo_md = msg.content[0].text.strip()
     tokens_usados = msg.usage.input_tokens + msg.usage.output_tokens
-
     fontes = [
         {"tipo_peca": c.get("tipo_peca"), "pagina": c.get("pagina"), "similarity": round(c.get("similarity", 0), 3)}
         for c in chunks
     ]
 
-    minuta = Minuta(
-        processo_id=processo_id,
-        analise_id=analise_id,
-        tipo=tipo,
-        titulo=titulo,
-        conteudo_md=conteudo_md,
-        versao=1,
-        status="rascunho",
-        fontes_json=fontes,
-        confianca=0.7,
-        criado_por=usuario_id,
-    )
-    db.add(minuta)
-    await db.flush()
+    minuta_data = {
+        "id": str(uuid.uuid4()),
+        "processo_id": str(processo_id),
+        "analise_id": str(analise_id) if analise_id else None,
+        "tipo": tipo,
+        "titulo": titulo,
+        "conteudo_md": conteudo_md,
+        "versao": 1,
+        "status": "rascunho",
+        "fontes_json": fontes,
+        "confianca": 0.7,
+        "criado_por": str(usuario_id) if usuario_id else None,
+    }
+    minuta_r = await sb_run(lambda: sb.table("minutas").insert(minuta_data).execute())
+    minuta = minuta_r.data[0]
 
-    # Tarefa de revisão obrigatória
-    tarefa = TarefaRevisao(
-        processo_id=processo_id,
-        tipo="minuta",
-        titulo=f"Revisar minuta: {titulo}",
-        descricao="Minuta gerada por IA. REVISÃO HUMANA OBRIGATÓRIA antes de qualquer uso externo.",
-        prioridade="alta",
-        atribuido_para=usuario_id,
-        atribuido_por=usuario_id,
-        metadados={"minuta_id": str(minuta.id)},
-    )
-    db.add(tarefa)
+    tarefa_data = {
+        "id": str(uuid.uuid4()),
+        "processo_id": str(processo_id),
+        "tipo": "minuta",
+        "titulo": f"Revisar minuta: {titulo}",
+        "descricao": "Minuta gerada por IA. REVISÃO HUMANA OBRIGATÓRIA antes de qualquer uso externo.",
+        "prioridade": "alta",
+        "status": "pendente",
+        "atribuido_para": str(usuario_id) if usuario_id else None,
+        "atribuido_por": str(usuario_id) if usuario_id else None,
+        "metadados": {"minuta_id": minuta["id"]},
+    }
+    await sb_run(lambda: sb.table("tarefas_revisao").insert(tarefa_data).execute())
 
     logger.success(f"Minuta '{titulo}' gerada — {tokens_usados} tokens")
     return minuta
 
 
 async def salvar_versao(
-    db: AsyncSession,
     minuta_id: uuid.UUID,
     novo_conteudo: str,
     usuario_id: Optional[uuid.UUID] = None,
-) -> Minuta:
-    """Salva nova versão de uma minuta (versionamento manual)."""
-    minuta = await db.get(Minuta, minuta_id)
-    if not minuta:
-        raise ValueError("Minuta não encontrada")
+) -> dict:
+    sb = get_supabase()
 
-    # Guarda versão anterior
-    hist = MinutaHistorico(
-        minuta_id=minuta.id,
-        versao=minuta.versao,
-        conteudo_md=minuta.conteudo_md,
-        alterado_por=usuario_id,
+    minuta_r = await sb_run(
+        lambda: sb.table("minutas").select("*").eq("id", str(minuta_id)).limit(1).execute()
     )
-    db.add(hist)
+    if not minuta_r.data:
+        raise ValueError("Minuta não encontrada")
+    minuta = minuta_r.data[0]
 
-    minuta.conteudo_md = novo_conteudo
-    minuta.versao += 1
-    minuta.status = "em_revisao"
+    hist_data = {
+        "id": str(uuid.uuid4()),
+        "minuta_id": str(minuta_id),
+        "versao": minuta["versao"],
+        "conteudo_md": minuta["conteudo_md"],
+        "alterado_por": str(usuario_id) if usuario_id else None,
+    }
+    await sb_run(lambda: sb.table("minutas_historico").insert(hist_data).execute())
 
-    return minuta
+    upd_r = await sb_run(
+        lambda: sb.table("minutas").update({
+            "conteudo_md": novo_conteudo,
+            "versao": minuta["versao"] + 1,
+            "status": "em_revisao",
+        }).eq("id", str(minuta_id)).execute()
+    )
+    return upd_r.data[0]

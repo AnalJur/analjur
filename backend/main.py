@@ -15,7 +15,6 @@ from .services.worker import loop_worker
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Inicia worker de jobs em background
     worker_task = asyncio.create_task(loop_worker(intervalo_sec=3.0))
     logger.info("AnalJur API iniciada")
     yield
@@ -38,7 +37,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Routers
 app.include_router(processos.router)
 app.include_router(documentos.router)
 app.include_router(analises.router)
@@ -55,13 +53,10 @@ async def health():
 
 @app.get("/debug/db")
 async def debug_db():
-    from .database import engine
-    from sqlalchemy import text
+    from .database import get_supabase, sb_run
     try:
-        async with engine.connect() as conn:
-            r = await conn.execute(text("SELECT current_database(), current_user, version()"))
-            row = r.fetchone()
-            return {"ok": True, "db": row[0], "user": row[1], "pg": row[2][:40]}
+        sb = get_supabase()
+        result = await sb_run(lambda: sb.table("processos").select("id", count="exact").limit(1).execute())
+        return {"ok": True, "processos": result.count, "transport": "supabase-REST"}
     except Exception as e:
-        import traceback
-        return {"ok": False, "error": str(e), "trace": traceback.format_exc()[-800:]}
+        return {"ok": False, "error": str(e)}
