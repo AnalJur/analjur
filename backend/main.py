@@ -51,3 +51,17 @@ app.include_router(admin.router)
 @app.get("/health")
 async def health():
     return {"status": "ok", "version": "2.0.0"}
+
+
+@app.get("/debug/db")
+async def debug_db():
+    from .database import engine
+    from sqlalchemy import text
+    try:
+        async with engine.connect() as conn:
+            r = await conn.execute(text("SELECT current_database(), current_user, version()"))
+            row = r.fetchone()
+            return {"ok": True, "db": row[0], "user": row[1], "pg": row[2][:40]}
+    except Exception as e:
+        import traceback
+        return {"ok": False, "error": str(e), "trace": traceback.format_exc()[-800:]}
