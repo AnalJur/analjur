@@ -4,6 +4,7 @@ Conexão dupla:
 - supabase-py → RPC de busca vetorial (pgvector via Supabase Functions)
 """
 
+import ssl
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import DeclarativeBase
 from supabase import create_client, Client
@@ -13,7 +14,15 @@ settings = get_settings()
 
 # --- SQLAlchemy -----------------------------------------------------------
 _db_url = settings.get_db_url()
-_connect_args = {"ssl": "require"} if "supabase.co" in _db_url else {}
+
+# SSLContext explícito — compatível com asyncpg no Linux e Windows
+if "supabase.co" in _db_url:
+    _ssl_ctx = ssl.create_default_context()
+    _ssl_ctx.check_hostname = False
+    _ssl_ctx.verify_mode = ssl.CERT_NONE
+    _connect_args = {"ssl": _ssl_ctx}
+else:
+    _connect_args = {}
 
 engine = create_async_engine(
     _db_url,
