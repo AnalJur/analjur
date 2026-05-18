@@ -47,6 +47,8 @@ async def upload_documento(
     content_hash = hashlib.sha256(conteudo).hexdigest()
     if await ingestao.verificar_duplicata(processo_id, content_hash):
         raise HTTPException(409, "Documento já existe no processo")
+    # Remove registro anterior com erro para permitir re-upload limpo
+    await ingestao.limpar_documento_com_erro(processo_id, content_hash)
 
     sb = get_supabase()
     doc_data = {

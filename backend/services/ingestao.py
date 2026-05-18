@@ -28,16 +28,39 @@ def calcular_hash(conteudo: bytes) -> str:
 
 
 async def verificar_duplicata(processo_id: uuid.UUID, content_hash: str) -> bool:
+    """Retorna True apenas se já existe documento processado com o mesmo hash.
+    Documentos com status 'erro' são ignorados — permite re-upload."""
+    sb = get_supabase()
+    result = await sb_run(
+        lambda: sb.table("documentos")
+        .select("id,status")
+        .eq("processo_id", str(processo_id))
+        .eq("content_hash", content_hash)
+        .limit(1)
+        .execute()
+    )
+    if not result.data:
+        return False
+    return result.data[0].get("status") != "erro"
+
+
+async def limpar_documento_com_erro(processo_id: uuid.UUID, content_hash: str) -> None:
+    """Remove registro de documento com erro para permitir re-upload limpo."""
     sb = get_supabase()
     result = await sb_run(
         lambda: sb.table("documentos")
         .select("id")
         .eq("processo_id", str(processo_id))
         .eq("content_hash", content_hash)
+        .eq("status", "erro")
         .limit(1)
         .execute()
     )
-    return bool(result.data)
+    if result.data:
+        doc_id = result.data[0]["id"]
+        await sb_run(lambda: sb.table("pecas").delete().eq("documento_id", doc_id).execute())
+        await sb_run(lambda: sb.table("documentos").delete().eq("id", doc_id).execute())
+        logger.info(f"Documento com erro removido para re-upload: {doc_id}")
 
 
 async def processar_conteudo(
