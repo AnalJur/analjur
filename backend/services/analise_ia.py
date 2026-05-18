@@ -161,7 +161,7 @@ async def gerar_analise(
     sb = get_supabase()
     cfg = PROMPTS[tipo]
 
-    chunks = buscar_chunks(processo_id, cfg["query_rag"], top_k=settings.rag_top_k)
+    chunks = await buscar_chunks(processo_id, cfg["query_rag"], top_k=settings.rag_top_k)
     if not chunks:
         raise ValueError("Nenhum chunk encontrado para o processo. Faça o upload de documentos primeiro.")
 
@@ -257,7 +257,7 @@ async def chat_processo(
     tipo_peca: Optional[str] = None,
 ) -> tuple[str, list[dict], int]:
     ultima_query = mensagens[-1]["content"] if mensagens else ""
-    chunks = buscar_chunks(processo_id, ultima_query, top_k=settings.rag_top_k, tipo_peca=tipo_peca)
+    chunks = await buscar_chunks(processo_id, ultima_query, top_k=settings.rag_top_k, tipo_peca=tipo_peca)
     contexto = formatar_contexto(chunks)
 
     system = SYSTEM_BASE + f"\n\nCONTEXTO DO PROCESSO (use apenas estas informações):\n\n{contexto}"

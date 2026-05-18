@@ -85,7 +85,7 @@ async def processar_conteudo(
         logger.info(f"{len(chunks_raw)} chunks gerados")
 
         textos = [c.conteudo for c in chunks_raw]
-        vetores = embeddings_documentos(textos)
+        vetores = await embeddings_documentos(textos)
 
         lote_sb = [
             {

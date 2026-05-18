@@ -5,18 +5,18 @@ Recuperação de chunks relevantes via pgvector (Supabase RPC).
 import uuid
 from typing import Optional
 from loguru import logger
-from ..database import get_supabase
+from ..database import get_supabase, sb_run
 from .embeddings import embedding_query
 
 
-def buscar_chunks(
+async def buscar_chunks(
     processo_id: uuid.UUID,
     query: str,
     top_k: int = 8,
     tipo_peca: Optional[str] = None,
 ) -> list[dict]:
     """Retorna chunks ordenados por similaridade semântica."""
-    vetor = embedding_query(query)
+    vetor = await embedding_query(query)
     sb = get_supabase()
 
     params: dict = {
@@ -28,7 +28,7 @@ def buscar_chunks(
         params["p_tipo_peca"] = tipo_peca
 
     try:
-        result = sb.rpc("buscar_chunks", params).execute()
+        result = await sb_run(lambda: sb.rpc("buscar_chunks", params).execute())
         return result.data or []
     except Exception as e:
         logger.error(f"Erro na busca vetorial: {e}")
