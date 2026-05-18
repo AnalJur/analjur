@@ -122,6 +122,12 @@ async def deletar_analise(processo_id: uuid.UUID, analise_id: uuid.UUID):
     )
     if not check.data:
         raise HTTPException(404, "Análise não encontrada")
+    # Remove tarefas_revisao vinculadas (FK constraint)
+    await sb_run(
+        lambda: sb.table("tarefas_revisao").delete()
+        .eq("analise_id", str(analise_id))
+        .execute()
+    )
     await sb_run(
         lambda: sb.table("analises").delete()
         .eq("id", str(analise_id))
