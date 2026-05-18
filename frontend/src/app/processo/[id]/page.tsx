@@ -55,13 +55,46 @@ type Tab = (typeof TABS)[number]["id"];
 
 // ── Aba: Documentos ───────────────────────────────────────────────────────
 
+function formatBytes(b?: number) {
+  if (!b) return "";
+  if (b < 1024 * 1024) return ` · ${(b / 1024).toFixed(0)} KB`;
+  return ` · ${(b / 1024 / 1024).toFixed(1)} MB`;
+}
+
 function AbaDocumentos({ processoId }: { processoId: string }) {
   const [docs, setDocs] = useState<Documento[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deletando, setDeletando] = useState<string | null>(null);
+  const [expandidoPecas, setExpandidoPecas] = useState<string | null>(null);
+  const [pecas, setPecas] = useState<Record<string, import("@/lib/api").Peca[]>>({});
 
-  useEffect(() => {
+  const carregar = () => {
     api.documentos.listar(processoId).then(setDocs).finally(() => setLoading(false));
-  }, [processoId]);
+  };
+
+  useEffect(() => { carregar(); }, [processoId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleDelete(docId: string, nome: string) {
+    if (!confirm(`Excluir "${nome}"? Todas as peças associadas serão removidas.`)) return;
+    setDeletando(docId);
+    try {
+      await api.documentos.deletar(processoId, docId);
+      setDocs(prev => prev.filter(d => d.id !== docId));
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Erro ao excluir");
+    } finally {
+      setDeletando(null);
+    }
+  }
+
+  async function verPecas(docId: string) {
+    if (expandidoPecas === docId) { setExpandidoPecas(null); return; }
+    setExpandidoPecas(docId);
+    if (!pecas[docId]) {
+      const lista = await api.documentos.pecas(processoId, docId).catch(() => []);
+      setPecas(prev => ({ ...prev, [docId]: lista }));
+    }
+  }
 
   const docStatusMap: Record<string, string> = {
     processado:  "bg-green-100 text-green-700",
@@ -71,35 +104,100 @@ function AbaDocumentos({ processoId }: { processoId: string }) {
   };
 
   if (loading) return <div className="flex justify-center py-12"><Spinner /></div>;
-  if (!docs.length) return (
-    <div className="text-center py-16 text-muted text-sm">
-      Nenhum documento ainda.{" "}
-      <a href={`/upload?processo=${processoId}`} className="text-gold underline">Enviar agora</a>
-    </div>
-  );
 
   return (
     <div className="space-y-3">
+      {/* Botão de upload */}
+      <div className="flex justify-end">
+        <a href={`/upload?processo=${processoId}`}
+          className="bg-gold text-navy font-semibold rounded-lg px-4 py-2 text-sm hover:bg-gold-light transition-all">
+          + Enviar Documento
+        </a>
+      </div>
+
+      {!docs.length && (
+        <div className="text-center py-16 text-muted text-sm">
+          Nenhum documento ainda.{" "}
+          <a href={`/upload?processo=${processoId}`} className="text-gold underline">Enviar agora</a>
+        </div>
+      )}
+
       {docs.map(d => (
-        <div key={d.id} className="bg-bg rounded-xl border border-border p-4 flex items-start justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-red-50 flex items-center justify-center">
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-red-500">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                <polyline points="14 2 14 8 20 8" />
-              </svg>
+        <div key={d.id} className="bg-bg rounded-xl border border-border overflow-hidden">
+          <div className="p-4 flex items-start justify-between gap-4">
+            {/* Ícone + info */}
+            <div className="flex items-center gap-3 flex-1 min-w-0">
+              <div className="w-10 h-10 rounded-lg bg-red-50 flex items-center justify-center flex-shrink-0">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-red-500">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                </svg>
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-text-main truncate">{d.nome_original}</p>
+                <p className="text-xs text-muted mt-0.5">
+                  {d.total_paginas ? `${d.total_paginas} pág.` : "—"}
+                  {d.ocr_utilizado && " · OCR"}
+                  {formatBytes(d.tamanho_bytes)}
+                  {" · "}{fmtData(d.uploaded_at)}
+                </p>
+                {d.erro_msg && (
+                  <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                    ⚠ {d.erro_msg}
+                  </p>
+                )}
+              </div>
             </div>
-            <div>
-              <p className="text-sm font-semibold text-text-main">{d.nome_original}</p>
-              <p className="text-xs text-muted mt-0.5">
-                {d.total_paginas ? `${d.total_paginas} pág.` : "—"}
-                {d.ocr_utilizado && " · OCR"}
-                {" · "}{fmtData(d.uploaded_at)}
-              </p>
-              {d.erro_msg && <p className="text-xs text-red-500 mt-1">{d.erro_msg}</p>}
+
+            {/* Ações */}
+            <div className="flex items-center gap-1 flex-shrink-0">
+              <StatusBadge s={d.status} map={docStatusMap} />
+
+              {d.status === "processado" && (
+                <button onClick={() => verPecas(d.id)}
+                  className="text-xs font-semibold text-gold hover:text-gold-light px-3 py-1.5 rounded-lg hover:bg-gold/10 transition-all ml-2">
+                  {expandidoPecas === d.id ? "Fechar" : "Ver peças"}
+                </button>
+              )}
+
+              {d.status === "erro" && (
+                <a href={`/upload?processo=${processoId}`}
+                  className="text-xs font-semibold text-orange-600 hover:text-orange-500 px-3 py-1.5 rounded-lg hover:bg-orange-50 transition-all ml-2">
+                  Re-enviar
+                </a>
+              )}
+
+              <button
+                onClick={() => handleDelete(d.id, d.nome_original)}
+                disabled={deletando === d.id}
+                className="text-xs font-semibold text-red-500 hover:text-red-700 px-3 py-1.5 rounded-lg hover:bg-red-50 transition-all disabled:opacity-50 ml-1">
+                {deletando === d.id ? "…" : "Excluir"}
+              </button>
             </div>
           </div>
-          <StatusBadge s={d.status} map={docStatusMap} />
+
+          {/* Peças expandidas */}
+          {expandidoPecas === d.id && (
+            <div className="border-t border-border bg-surface px-4 py-3">
+              {!pecas[d.id] ? (
+                <div className="flex justify-center py-3"><Spinner /></div>
+              ) : pecas[d.id].length === 0 ? (
+                <p className="text-xs text-muted text-center py-2">Nenhuma peça indexada.</p>
+              ) : (
+                <div className="space-y-1.5">
+                  <p className="text-xs font-semibold text-muted mb-2 uppercase tracking-wider">
+                    {pecas[d.id].length} peça{pecas[d.id].length !== 1 ? "s" : ""} indexada{pecas[d.id].length !== 1 ? "s" : ""}
+                  </p>
+                  {pecas[d.id].map(p => (
+                    <div key={p.id} className="flex items-center justify-between text-xs text-muted py-1 border-b border-border/50 last:border-0">
+                      <span className="font-medium text-text-main">{p.tipo_peca.replace(/_/g, " ")}</span>
+                      <span>pág. {p.pagina_inicio}–{p.pagina_fim}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       ))}
     </div>
