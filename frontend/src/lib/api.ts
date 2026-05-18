@@ -180,12 +180,12 @@ export const api = {
   cronologia: {
     listar: (processoId: string) =>
       req<EventoCronologia[]>(`/processos/${processoId}/cronologia`),
-    criar: (processoId: string, body: Partial<EventoCronologia>) =>
+    criar: (processoId: string, body: Record<string, unknown>) =>
       req<EventoCronologia>(`/processos/${processoId}/cronologia`, {
         method: "POST",
         body: JSON.stringify(body),
       }),
-    atualizar: (processoId: string, eventoId: string, body: Partial<EventoCronologia>) =>
+    atualizar: (processoId: string, eventoId: string, body: Record<string, unknown>) =>
       req<EventoCronologia>(`/processos/${processoId}/cronologia/${eventoId}`, {
         method: "PATCH",
         body: JSON.stringify(body),
