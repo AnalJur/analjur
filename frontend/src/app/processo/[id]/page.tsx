@@ -514,11 +514,12 @@ const TIPOS_ANALISE = [
   { id: "estrategia",          label: "Estratégia" },
 ];
 
-function ModalAnalise({ analise, processoId, onUpdate, onClose }: {
+function ModalAnalise({ analise, processoId, onUpdate, onClose, onDelete }: {
   analise: Analise; processoId: string;
   onUpdate: (a: Analise) => void; onClose: () => void;
+  onDelete: (id: string) => void;
 }) {
-  const [loading, setLoading] = useState<"aprovar" | "rejeitar" | null>(null);
+  const [loading, setLoading] = useState<"aprovar" | "rejeitar" | "excluir" | null>(null);
 
   async function aprovar() {
     setLoading("aprovar");
@@ -535,6 +536,17 @@ function ModalAnalise({ analise, processoId, onUpdate, onClose }: {
     try {
       const a = await api.analises.rejeitar(processoId, analise.id, comentario);
       onUpdate(a);
+    } finally { setLoading(null); }
+  }
+
+  async function excluir() {
+    const label = TIPOS_ANALISE.find(t => t.id === analise.tipo)?.label ?? analise.tipo;
+    if (!confirm(`Excluir a análise "${label}"?`)) return;
+    setLoading("excluir");
+    try {
+      await api.analises.deletar(processoId, analise.id);
+      onDelete(analise.id);
+      onClose();
     } finally { setLoading(null); }
   }
 
@@ -580,6 +592,12 @@ function ModalAnalise({ analise, processoId, onUpdate, onClose }: {
         {analise.status_revisao === "aprovada" && (
           <p className="text-xs text-green-600 text-right">✓ Aprovada em {fmtData(analise.revisado_at)}</p>
         )}
+        {/* Excluir sempre disponível */}
+        <div className="flex justify-start pt-2 border-t border-border">
+          <Btn variant="danger" onClick={excluir} disabled={!!loading}>
+            {loading === "excluir" ? "Excluindo…" : "🗑 Excluir análise"}
+          </Btn>
+        </div>
       </div>
     </Modal>
   );
@@ -625,6 +643,7 @@ function AbaAnalises({ processoId }: { processoId: string }) {
   const [loading, setLoading] = useState(true);
   const [gerando, setGerando] = useState<string | null>(null);
   const [modalAnalise, setModalAnalise] = useState<Analise | null>(null);
+  const [deletandoAnalise, setDeletandoAnalise] = useState<string | null>(null);
   const [docsSelecionados, setDocsSelecionados] = useState<string[]>([]);
   const [mostrarSeletor, setMostrarSeletor] = useState(false);
   const [tipoSelecionado, setTipoSelecionado] = useState<string | null>(null);
@@ -661,6 +680,21 @@ function AbaAnalises({ processoId }: { processoId: string }) {
     } finally {
       setGerando(null);
       setTipoSelecionado(null);
+    }
+  }
+
+  async function handleDeleteAnalise(analiseId: string, tipo: string) {
+    const label = TIPOS_ANALISE.find(t => t.id === tipo)?.label ?? tipo;
+    if (!confirm(`Excluir a análise "${label}"?`)) return;
+    setDeletandoAnalise(analiseId);
+    try {
+      await api.analises.deletar(processoId, analiseId);
+      setAnalises(prev => prev.filter(a => a.id !== analiseId));
+      if (modalAnalise?.id === analiseId) setModalAnalise(null);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Erro ao excluir");
+    } finally {
+      setDeletandoAnalise(null);
     }
   }
 
@@ -735,6 +769,11 @@ function AbaAnalises({ processoId }: { processoId: string }) {
                   </>
                 )}
                 <Btn onClick={() => setModalAnalise(a)}>Ver</Btn>
+                <Btn variant="danger"
+                  onClick={() => handleDeleteAnalise(a.id, a.tipo)}
+                  disabled={deletandoAnalise === a.id}>
+                  {deletandoAnalise === a.id ? "…" : "Excluir"}
+                </Btn>
               </div>
             </div>
           </div>
@@ -790,6 +829,7 @@ function AbaAnalises({ processoId }: { processoId: string }) {
             setAnalises(prev => prev.map(x => x.id === upd.id ? upd : x));
             setModalAnalise(upd);
           }}
+          onDelete={id => setAnalises(prev => prev.filter(x => x.id !== id))}
           onClose={() => setModalAnalise(null)}
         />
       )}

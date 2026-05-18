@@ -229,6 +229,8 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ comentario }),
       }),
+    deletar: (processoId: string, analiseId: string) =>
+      req<void>(`/processos/${processoId}/analises/${analiseId}`, { method: "DELETE" }),
     chat: (
       processoId: string,
       mensagens: { role: string; content: string }[],

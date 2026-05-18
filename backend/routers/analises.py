@@ -110,6 +110,26 @@ async def rejeitar_analise(processo_id: uuid.UUID, analise_id: uuid.UUID, coment
     return result.data[0]
 
 
+@router.delete("/{analise_id}", status_code=204)
+async def deletar_analise(processo_id: uuid.UUID, analise_id: uuid.UUID):
+    sb = get_supabase()
+    check = await sb_run(
+        lambda: sb.table("analises").select("id")
+        .eq("id", str(analise_id))
+        .eq("processo_id", str(processo_id))
+        .limit(1)
+        .execute()
+    )
+    if not check.data:
+        raise HTTPException(404, "Análise não encontrada")
+    await sb_run(
+        lambda: sb.table("analises").delete()
+        .eq("id", str(analise_id))
+        .execute()
+    )
+    await audit_svc.registrar("deletar", "analise", analise_id, usuario_id=DEFAULT_USER)
+
+
 @router.post("/chat", response_model=ChatResponse, tags=["Chat"])
 async def chat(body: ChatRequest):
     try:
