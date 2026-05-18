@@ -1,8 +1,10 @@
 """
-Geração de minutas e documentos jurídicos assistida por IA via supabase-py.
+Geração de minutas e documentos jurídicos assistida por IA.
+Usa texto completo das peças (sem RAG).
 """
 
 import uuid
+import functools
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -11,7 +13,6 @@ from loguru import logger
 
 from ..config import get_settings
 from ..database import get_supabase, sb_run
-from .rag import buscar_chunks, formatar_contexto
 
 settings = get_settings()
 
@@ -25,36 +26,53 @@ TEMPLATES = {
         "instrucao": """Redija um resumo executivo do processo em linguagem clara e objetiva.
 Formato Markdown. Seções: Visão Geral | Situação Atual | Pontos de Atenção | Próximos Passos.
 Máximo 800 palavras. Cite fontes entre colchetes [peça/página].""",
-        "query": "resumo estado atual situação processo",
     },
     "minuta_recurso": {
         "instrucao": """Redija uma minuta de recurso baseada nos documentos do processo.
 AVISO OBRIGATÓRIO no início: "MINUTA PARA REVISÃO — NÃO USAR SEM APROVAÇÃO DO ADVOGADO RESPONSÁVEL."
 Estrutura: Tempestividade | Cabimento | Pressupostos | Mérito (teses) | Pedido.
 Indique entre [VERIFICAR] os campos que precisam de confirmação humana.""",
-        "query": "decisão recorrida teses cabimento recurso",
     },
     "minuta_contestacao": {
         "instrucao": """Redija uma minuta de contestação baseada nos documentos do processo.
 AVISO OBRIGATÓRIO no início: "MINUTA PARA REVISÃO — NÃO USAR SEM APROVAÇÃO DO ADVOGADO RESPONSÁVEL."
 Estrutura: Preliminares | Mérito (impugnação ponto a ponto) | Pedido.
 Indique entre [VERIFICAR] os campos que precisam de confirmação humana.""",
-        "query": "petição inicial pedidos autora contestar",
     },
     "prompt_juridico": {
         "instrucao": """Gere um prompt jurídico estruturado para uso interno da equipe.
 Inclua: contexto do processo, questões abertas, pontos que precisam de pesquisa,
 jurisprudência relevante a verificar, e checklist de ações.""",
-        "query": "questões abertas pesquisa jurisprudência pendências",
     },
     "parecer": {
         "instrucao": """Redija um parecer técnico-jurídico sobre o processo.
 AVISO OBRIGATÓRIO no início: "PARECER PRELIMINAR — SUJEITO A REVISÃO HUMANA."
 Estrutura: Síntese Fática | Análise Jurídica | Riscos e Oportunidades | Conclusão.
 Indique o grau de certeza de cada conclusão.""",
-        "query": "análise jurídica riscos oportunidades conclusão",
     },
 }
+
+
+async def _buscar_contexto(processo_id: uuid.UUID) -> str:
+    """Busca texto completo das peças do processo."""
+    sb = get_supabase()
+    result = await sb_run(
+        lambda: sb.table("pecas")
+        .select("tipo_peca,pagina_inicio,pagina_fim,conteudo_texto")
+        .eq("processo_id", str(processo_id))
+        .order("pagina_inicio", desc=False)
+        .execute()
+    )
+    pecas = result.data or []
+    if not pecas:
+        return ""
+    partes = []
+    for p in pecas:
+        tipo = p.get("tipo_peca", "peca").upper()
+        pags = f"pág. {p.get('pagina_inicio')}-{p.get('pagina_fim')}"
+        texto = p.get("conteudo_texto") or "(sem texto)"
+        partes.append(f"=== {tipo} ({pags}) ===\n{texto}")
+    return "\n\n".join(partes)
 
 
 async def gerar_minuta(
@@ -65,16 +83,18 @@ async def gerar_minuta(
     usuario_id: Optional[uuid.UUID] = None,
     analise_id: Optional[uuid.UUID] = None,
 ) -> dict:
+    import asyncio
+
     if tipo not in TEMPLATES:
         raise ValueError(f"Tipo de minuta inválido: {tipo}")
 
     sb = get_supabase()
     tpl = TEMPLATES[tipo]
-    chunks = buscar_chunks(processo_id, tpl["query"], top_k=10)
-    if not chunks:
+
+    contexto = await _buscar_contexto(processo_id)
+    if not contexto:
         raise ValueError("Sem documentos para embasar a minuta.")
 
-    contexto = formatar_contexto(chunks)
     instrucao = tpl["instrucao"]
     if instrucoes:
         instrucao += f"\n\nINSTRUÇÕES ADICIONAIS DO ADVOGADO:\n{instrucoes}"
@@ -86,19 +106,20 @@ async def gerar_minuta(
     )
 
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-    msg = client.messages.create(
-        model=settings.llm_model,
-        max_tokens=6000,
-        system="Você é um assistente jurídico especializado. Redija minutas profissionais baseadas exclusivamente nos documentos fornecidos.",
-        messages=[{"role": "user", "content": prompt}],
+    loop = asyncio.get_event_loop()
+    msg = await loop.run_in_executor(
+        None,
+        functools.partial(
+            client.messages.create,
+            model=settings.llm_model,
+            max_tokens=6000,
+            system="Você é um assistente jurídico especializado. Redija minutas profissionais baseadas exclusivamente nos documentos fornecidos.",
+            messages=[{"role": "user", "content": prompt}],
+        ),
     )
 
     conteudo_md = msg.content[0].text.strip()
     tokens_usados = msg.usage.input_tokens + msg.usage.output_tokens
-    fontes = [
-        {"tipo_peca": c.get("tipo_peca"), "pagina": c.get("pagina"), "similarity": round(c.get("similarity", 0), 3)}
-        for c in chunks
-    ]
 
     minuta_data = {
         "id": str(uuid.uuid4()),
@@ -109,7 +130,7 @@ async def gerar_minuta(
         "conteudo_md": conteudo_md,
         "versao": 1,
         "status": "rascunho",
-        "fontes_json": fontes,
+        "fontes_json": [],
         "confianca": 0.7,
         "criado_por": str(usuario_id) if usuario_id else None,
     }
