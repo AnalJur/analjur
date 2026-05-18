@@ -42,42 +42,19 @@ async def verificar_duplicata(processo_id: uuid.UUID, content_hash: str) -> bool
     return bool(result.data)
 
 
-async def processar_documento(
+async def processar_conteudo(
+    doc_id: str,
     processo_id: uuid.UUID,
     tenant_id: uuid.UUID,
     nome_original: str,
     conteudo: bytes,
-    uploaded_by: Optional[uuid.UUID] = None,
-    tmp_path: Optional[Path] = None,
-) -> dict:
+) -> None:
+    """Processa OCR/classificação/embeddings de um documento já registrado no banco.
+    Chamado como background task — atualiza o status diretamente."""
     sb = get_supabase()
 
-    content_hash = calcular_hash(conteudo)
-    if await verificar_duplicata(processo_id, content_hash):
-        raise ValueError(f"Documento já existe no processo (hash {content_hash[:8]}…)")
-
-    if tmp_path is None:
-        tmp_path = Path(tempfile.gettempdir()) / f"{uuid.uuid4()}.pdf"
-        tmp_path.write_bytes(conteudo)
-        tmp_criado = True
-    else:
-        tmp_criado = False
-
-    doc_data = {
-        "id": str(uuid.uuid4()),
-        "processo_id": str(processo_id),
-        "tenant_id": str(tenant_id),
-        "nome_original": nome_original,
-        "storage_path": str(tmp_path),
-        "content_hash": content_hash,
-        "tamanho_bytes": len(conteudo),
-        "status": "processando",
-        "uploaded_by": str(uploaded_by) if uploaded_by else None,
-        "uploaded_at": _utcnow(),
-    }
-    doc_r = await sb_run(lambda: sb.table("documentos").insert(doc_data).execute())
-    doc = doc_r.data[0]
-    doc_id = doc["id"]
+    tmp_path = Path(tempfile.gettempdir()) / f"{uuid.uuid4()}.pdf"
+    tmp_path.write_bytes(conteudo)
 
     try:
         logger.info(f"Extraindo texto de {nome_original}")
@@ -127,10 +104,11 @@ async def processar_documento(
 
         LOTE = 50
         for i in range(0, len(lote_sb), LOTE):
-            sb.table("chunks").insert(lote_sb[i: i + LOTE]).execute()
+            lote = lote_sb[i: i + LOTE]
+            await sb_run(lambda lote=lote: sb.table("chunks").insert(lote).execute())
             logger.debug(f"Chunks inseridos {i}–{i + LOTE}")
 
-        upd_r = await sb_run(
+        await sb_run(
             lambda: sb.table("documentos").update({
                 "status": "processado",
                 "total_paginas": len(paginas),
@@ -138,7 +116,6 @@ async def processar_documento(
                 "processado_at": _utcnow(),
             }).eq("id", doc_id).execute()
         )
-        doc = upd_r.data[0]
         logger.success(f"Documento {nome_original} processado — {len(chunks_raw)} chunks")
 
     except Exception as e:
@@ -149,10 +126,45 @@ async def processar_documento(
             }).eq("id", doc_id).execute()
         )
         logger.error(f"Erro ao processar {nome_original}: {e}")
-        raise
 
     finally:
-        if tmp_criado and tmp_path and tmp_path.exists():
-            tmp_path.unlink(missing_ok=True)
+        tmp_path.unlink(missing_ok=True)
 
-    return doc
+
+async def processar_documento(
+    processo_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    nome_original: str,
+    conteudo: bytes,
+    uploaded_by: Optional[uuid.UUID] = None,
+    tmp_path: Optional[Path] = None,
+) -> dict:
+    """Cria o registro e processa sincronamente (usado pelo worker)."""
+    sb = get_supabase()
+
+    content_hash = calcular_hash(conteudo)
+    if await verificar_duplicata(processo_id, content_hash):
+        raise ValueError(f"Documento já existe no processo (hash {content_hash[:8]}…)")
+
+    doc_data = {
+        "id": str(uuid.uuid4()),
+        "processo_id": str(processo_id),
+        "tenant_id": str(tenant_id),
+        "nome_original": nome_original,
+        "storage_path": "",
+        "content_hash": content_hash,
+        "tamanho_bytes": len(conteudo),
+        "status": "processando",
+        "uploaded_by": str(uploaded_by) if uploaded_by else None,
+        "uploaded_at": _utcnow(),
+    }
+    doc_r = await sb_run(lambda: sb.table("documentos").insert(doc_data).execute())
+    doc = doc_r.data[0]
+    doc_id = doc["id"]
+
+    await processar_conteudo(doc_id, processo_id, tenant_id, nome_original, conteudo)
+
+    result = await sb_run(
+        lambda: sb.table("documentos").select("*").eq("id", doc_id).limit(1).execute()
+    )
+    return result.data[0]

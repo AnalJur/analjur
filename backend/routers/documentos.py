@@ -1,10 +1,11 @@
+import hashlib
 import uuid
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from datetime import datetime, timezone
+from fastapi import APIRouter, BackgroundTasks, HTTPException, UploadFile, File
 
 from ..database import get_supabase, sb_run
 from ..schemas import DocumentoOut, PecaOut
-from ..services.ingestao import processar_documento
-from ..services import audit_svc, worker
+from ..services import ingestao, audit_svc, worker
 from ..config import get_settings
 
 router = APIRouter(prefix="/processos/{processo_id}/documentos", tags=["Documentos"])
@@ -12,6 +13,10 @@ settings = get_settings()
 
 DEFAULT_TENANT = uuid.UUID(settings.default_tenant_id)
 DEFAULT_USER   = uuid.UUID(settings.default_usuario_id)
+
+
+def _utcnow() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 @router.get("", response_model=list[DocumentoOut])
@@ -27,7 +32,11 @@ async def listar_documentos(processo_id: uuid.UUID):
 
 
 @router.post("", response_model=DocumentoOut, status_code=202)
-async def upload_documento(processo_id: uuid.UUID, file: UploadFile = File(...)):
+async def upload_documento(
+    processo_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+):
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(400, "Apenas arquivos PDF são aceitos")
 
@@ -35,16 +44,34 @@ async def upload_documento(processo_id: uuid.UUID, file: UploadFile = File(...))
     if len(conteudo) > 50 * 1024 * 1024:
         raise HTTPException(413, "Arquivo muito grande (máximo 50 MB)")
 
-    try:
-        doc = await processar_documento(
-            processo_id=processo_id,
-            tenant_id=DEFAULT_TENANT,
-            nome_original=file.filename,
-            conteudo=conteudo,
-            uploaded_by=DEFAULT_USER,
-        )
-    except ValueError as e:
-        raise HTTPException(409, str(e))
+    content_hash = hashlib.sha256(conteudo).hexdigest()
+    if await ingestao.verificar_duplicata(processo_id, content_hash):
+        raise HTTPException(409, "Documento já existe no processo")
+
+    sb = get_supabase()
+    doc_data = {
+        "id": str(uuid.uuid4()),
+        "processo_id": str(processo_id),
+        "tenant_id": str(DEFAULT_TENANT),
+        "nome_original": file.filename,
+        "storage_path": "",
+        "content_hash": content_hash,
+        "tamanho_bytes": len(conteudo),
+        "status": "processando",
+        "uploaded_by": str(DEFAULT_USER),
+        "uploaded_at": _utcnow(),
+    }
+    doc_r = await sb_run(lambda: sb.table("documentos").insert(doc_data).execute())
+    doc = doc_r.data[0]
+
+    background_tasks.add_task(
+        ingestao.processar_conteudo,
+        doc["id"],
+        processo_id,
+        DEFAULT_TENANT,
+        file.filename,
+        conteudo,
+    )
 
     await worker.enfileirar("snapshot", {
         "processo_id": str(processo_id),
@@ -53,7 +80,7 @@ async def upload_documento(processo_id: uuid.UUID, file: UploadFile = File(...))
     })
 
     await audit_svc.registrar("criar", "documento", doc["id"],
-                               dados_depois={"nome": file.filename, "status": doc["status"]},
+                               dados_depois={"nome": file.filename, "status": "processando"},
                                usuario_id=DEFAULT_USER)
     return doc
 
@@ -76,15 +103,22 @@ async def obter_documento(processo_id: uuid.UUID, doc_id: uuid.UUID):
 @router.delete("/{doc_id}", status_code=204)
 async def deletar_documento(processo_id: uuid.UUID, doc_id: uuid.UUID):
     sb = get_supabase()
+    check = await sb_run(
+        lambda: sb.table("documentos").select("id")
+        .eq("id", str(doc_id))
+        .eq("processo_id", str(processo_id))
+        .limit(1)
+        .execute()
+    )
+    if not check.data:
+        raise HTTPException(404, "Documento não encontrado")
     await audit_svc.registrar("deletar", "documento", doc_id, usuario_id=DEFAULT_USER)
-    result = await sb_run(
+    await sb_run(
         lambda: sb.table("documentos").delete()
         .eq("id", str(doc_id))
         .eq("processo_id", str(processo_id))
         .execute()
     )
-    if not result.data:
-        raise HTTPException(404, "Documento não encontrado")
 
 
 @router.get("/{doc_id}/pecas", response_model=list[PecaOut])

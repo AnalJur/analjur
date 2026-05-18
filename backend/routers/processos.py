@@ -94,13 +94,16 @@ async def atualizar_processo(processo_id: uuid.UUID, body: ProcessoUpdate):
 @router.delete("/{processo_id}", status_code=204)
 async def deletar_processo(processo_id: uuid.UUID):
     sb = get_supabase()
+    check = await sb_run(
+        lambda: sb.table("processos").select("id").eq("id", str(processo_id)).limit(1).execute()
+    )
+    if not check.data:
+        raise HTTPException(404, "Processo não encontrado")
     await audit_svc.registrar("deletar", "processo", processo_id,
                                usuario_id=uuid.UUID(DEFAULT_USER))
-    result = await sb_run(
+    await sb_run(
         lambda: sb.table("processos").delete().eq("id", str(processo_id)).execute()
     )
-    if not result.data:
-        raise HTTPException(404, "Processo não encontrado")
 
 
 # ── Partes ────────────────────────────────────────────────────────────────
