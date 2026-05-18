@@ -54,7 +54,7 @@ app.include_router(admin.router)
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "version": "2.0.0"}
+    return {"status": "ok", "version": "3.0.0", "engine": "claude-direct"}
 
 
 @app.get("/debug/db")
