@@ -103,6 +103,25 @@ class PecaOut(BaseModel):
 
 # ── Cronologia ────────────────────────────────────────────────────────────
 
+class CronologiaCreate(BaseModel):
+    data_evento:     Optional[date] = None
+    data_aproximada: bool = False
+    tipo_evento:     str
+    descricao:       str
+    relevancia:      str = "media"
+    fonte:           str = "manual"
+
+
+class CronologiaUpdate(BaseModel):
+    data_evento:     Optional[date] = None
+    data_aproximada: Optional[bool] = None
+    tipo_evento:     Optional[str] = None
+    descricao:       Optional[str] = None
+    relevancia:      Optional[str] = None
+    fonte:           Optional[str] = None
+    validado:        Optional[bool] = None
+
+
 class CronologiaOut(BaseModel):
     id:              uuid.UUID
     data_evento:     Optional[date] = None
@@ -139,6 +158,7 @@ class AnaliseSolicitacao(BaseModel):
         description="resumo_executivo | riscos | teses | estado_atual | impacto_atualizacao | proximos_passos | estrategia"
     )
     contexto_extra: Optional[str] = None
+    documento_ids:  Optional[list[uuid.UUID]] = None
 
 
 class AnaliseOut(BaseModel):

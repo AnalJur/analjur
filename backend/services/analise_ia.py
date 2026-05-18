@@ -149,15 +149,19 @@ JSON schema:
 }
 
 
-async def _buscar_pecas(processo_id: uuid.UUID) -> list[dict]:
+async def _buscar_pecas(
+    processo_id: uuid.UUID,
+    documento_ids: Optional[list[uuid.UUID]] = None,
+) -> list[dict]:
     sb = get_supabase()
-    result = await sb_run(
-        lambda: sb.table("pecas")
-        .select("id,tipo_peca,pagina_inicio,pagina_fim,conteudo_texto,confianca_classificacao")
-        .eq("processo_id", str(processo_id))
-        .order("pagina_inicio", desc=False)
-        .execute()
-    )
+    q = (sb.table("pecas")
+         .select("id,documento_id,tipo_peca,pagina_inicio,pagina_fim,conteudo_texto,confianca_classificacao")
+         .eq("processo_id", str(processo_id))
+         .order("pagina_inicio", desc=False))
+    if documento_ids:
+        ids_str = [str(d) for d in documento_ids]
+        q = q.in_("documento_id", ids_str)
+    result = await sb_run(q.execute)
     return result.data or []
 
 
@@ -234,6 +238,7 @@ async def gerar_analise(
     tipo: str,
     usuario_id: Optional[uuid.UUID] = None,
     contexto_extra: Optional[str] = None,
+    documento_ids: Optional[list[uuid.UUID]] = None,
 ) -> dict:
     if tipo not in PROMPTS:
         raise ValueError(f"Tipo de análise inválido: {tipo}")
@@ -241,7 +246,7 @@ async def gerar_analise(
     sb = get_supabase()
     cfg = PROMPTS[tipo]
 
-    pecas = await _buscar_pecas(processo_id)
+    pecas = await _buscar_pecas(processo_id, documento_ids=documento_ids)
     if not pecas:
         raise ValueError("Nenhuma peça encontrada. Faça o upload de documentos primeiro.")
 

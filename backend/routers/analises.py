@@ -36,6 +36,7 @@ async def solicitar_analise(processo_id: uuid.UUID, body: AnaliseSolicitacao):
             processo_id, body.tipo,
             usuario_id=DEFAULT_USER,
             contexto_extra=body.contexto_extra,
+            documento_ids=body.documento_ids or None,
         )
     except ValueError as e:
         raise HTTPException(400, str(e))

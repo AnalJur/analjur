@@ -6,7 +6,9 @@ from fastapi import APIRouter, HTTPException, Query
 from ..database import get_supabase, sb_run
 from ..schemas import (
     ProcessoCreate, ProcessoUpdate, ProcessoOut,
-    ParteCreate, ParteOut, CronologiaOut, SnapshotOut,
+    ParteCreate, ParteOut,
+    CronologiaCreate, CronologiaUpdate, CronologiaOut,
+    SnapshotOut,
 )
 from ..services import audit_svc, snapshot_svc
 from ..config import get_settings
@@ -143,6 +145,38 @@ async def obter_cronologia(processo_id: uuid.UUID):
     return result.data
 
 
+@router.post("/{processo_id}/cronologia", response_model=CronologiaOut, status_code=201)
+async def criar_evento(processo_id: uuid.UUID, body: CronologiaCreate):
+    sb = get_supabase()
+    data = {
+        "id": str(uuid.uuid4()),
+        "processo_id": str(processo_id),
+        "fonte": body.fonte or "manual",
+        **{k: (str(v) if hasattr(v, 'isoformat') else v)
+           for k, v in body.model_dump(exclude_none=True).items()},
+    }
+    result = await sb_run(lambda: sb.table("cronologia").insert(data).execute())
+    return result.data[0]
+
+
+@router.patch("/{processo_id}/cronologia/{evento_id}", response_model=CronologiaOut)
+async def atualizar_evento(processo_id: uuid.UUID, evento_id: uuid.UUID, body: CronologiaUpdate):
+    sb = get_supabase()
+    dados = {k: (str(v) if hasattr(v, 'isoformat') else v)
+             for k, v in body.model_dump(exclude_none=True).items()}
+    if not dados:
+        raise HTTPException(400, "Nenhum campo para atualizar")
+    result = await sb_run(
+        lambda: sb.table("cronologia").update(dados)
+        .eq("id", str(evento_id))
+        .eq("processo_id", str(processo_id))
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(404, "Evento não encontrado")
+    return result.data[0]
+
+
 @router.patch("/{processo_id}/cronologia/{evento_id}/validar", response_model=CronologiaOut)
 async def validar_evento(processo_id: uuid.UUID, evento_id: uuid.UUID):
     sb = get_supabase()
@@ -155,6 +189,25 @@ async def validar_evento(processo_id: uuid.UUID, evento_id: uuid.UUID):
     if not result.data:
         raise HTTPException(404, "Evento não encontrado")
     return result.data[0]
+
+
+@router.delete("/{processo_id}/cronologia/{evento_id}", status_code=204)
+async def deletar_evento(processo_id: uuid.UUID, evento_id: uuid.UUID):
+    sb = get_supabase()
+    check = await sb_run(
+        lambda: sb.table("cronologia").select("id")
+        .eq("id", str(evento_id))
+        .eq("processo_id", str(processo_id))
+        .limit(1)
+        .execute()
+    )
+    if not check.data:
+        raise HTTPException(404, "Evento não encontrado")
+    await sb_run(
+        lambda: sb.table("cronologia").delete()
+        .eq("id", str(evento_id))
+        .execute()
+    )
 
 
 # ── Snapshots ─────────────────────────────────────────────────────────────

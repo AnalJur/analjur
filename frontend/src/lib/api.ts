@@ -180,6 +180,18 @@ export const api = {
   cronologia: {
     listar: (processoId: string) =>
       req<EventoCronologia[]>(`/processos/${processoId}/cronologia`),
+    criar: (processoId: string, body: Partial<EventoCronologia>) =>
+      req<EventoCronologia>(`/processos/${processoId}/cronologia`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    atualizar: (processoId: string, eventoId: string, body: Partial<EventoCronologia>) =>
+      req<EventoCronologia>(`/processos/${processoId}/cronologia/${eventoId}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      }),
+    deletar: (processoId: string, eventoId: string) =>
+      req<void>(`/processos/${processoId}/cronologia/${eventoId}`, { method: "DELETE" }),
     validar: (processoId: string, eventoId: string) =>
       req<EventoCronologia>(`/processos/${processoId}/cronologia/${eventoId}/validar`, {
         method: "PATCH",
@@ -202,10 +214,10 @@ export const api = {
   analises: {
     listar: (processoId: string, tipo?: string) =>
       req<Analise[]>(`/processos/${processoId}/analises${tipo ? `?tipo=${tipo}` : ""}`),
-    solicitar: (processoId: string, tipo: string, contexto_extra?: string) =>
+    solicitar: (processoId: string, tipo: string, contexto_extra?: string, documento_ids?: string[]) =>
       req<Analise>(`/processos/${processoId}/analises`, {
         method: "POST",
-        body: JSON.stringify({ tipo, contexto_extra }),
+        body: JSON.stringify({ tipo, contexto_extra, documento_ids: documento_ids ?? null }),
       }),
     aprovar: (processoId: string, analiseId: string, comentario?: string) =>
       req<Analise>(`/processos/${processoId}/analises/${analiseId}/aprovar`, {
