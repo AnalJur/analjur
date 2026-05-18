@@ -1,8 +1,14 @@
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+function getAuthHeader(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  const token = localStorage.getItem("analjur_token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    headers: { "Content-Type": "application/json", ...getAuthHeader(), ...init?.headers },
     ...init,
   });
   if (!res.ok) {
@@ -293,5 +299,14 @@ export const api = {
       req<unknown[]>(
         `/admin/audit?${entidade ? `entidade=${entidade}&` : ""}limit=${limit ?? 50}`
       ),
+  },
+
+  auth: {
+    login: (email: string, password: string) =>
+      req<{ access_token: string; refresh_token?: string; user: { id: string; email: string } }>(
+        "/auth/login",
+        { method: "POST", body: JSON.stringify({ email, password }) }
+      ),
+    logout: () => req<{ ok: boolean }>("/auth/logout", { method: "POST" }),
   },
 };

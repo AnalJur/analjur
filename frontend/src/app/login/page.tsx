@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { api } from "@/lib/api";
+import { setAuth } from "@/lib/auth";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -20,9 +22,15 @@ export default function LoginPage() {
     }
 
     setLoading(true);
-    await new Promise((r) => setTimeout(r, 800));
-    setLoading(false);
-    router.push("/dashboard");
+    try {
+      const data = await api.auth.login(email, senha);
+      setAuth(data.access_token, data.user);
+      router.push("/dashboard");
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : "Credenciais inválidas");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (

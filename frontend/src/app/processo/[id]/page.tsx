@@ -48,6 +48,22 @@ function StatusBadge({ s, map }: { s: string; map: Record<string, string> }) {
   return <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${map[s] ?? "bg-gray-100 text-gray-600"}`}>{s}</span>;
 }
 
+function SearchBar({ value, onChange, placeholder }: {
+  value: string; onChange: (v: string) => void; placeholder?: string;
+}) {
+  return (
+    <div className="relative">
+      <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none"
+        xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+      <input value={value} onChange={e => onChange(e.target.value)}
+        placeholder={placeholder ?? "Buscar…"}
+        className="w-full pl-8 pr-3 py-2 border border-border rounded-lg text-sm bg-bg text-text-main placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-gold/40" />
+    </div>
+  );
+}
+
 function Btn({ onClick, disabled, variant = "ghost", children, className = "" }: {
   onClick?: () => void; disabled?: boolean;
   variant?: "gold" | "danger" | "ghost" | "green" | "orange";
@@ -114,6 +130,7 @@ function AbaDocumentos({ processoId }: { processoId: string }) {
   const [deletando, setDeletando] = useState<string | null>(null);
   const [modalConteudo, setModalConteudo] = useState<{ doc: Documento; pecas: Peca[] } | null>(null);
   const [carregandoPecas, setCarregandoPecas] = useState<string | null>(null);
+  const [busca, setBusca] = useState("");
 
   useEffect(() => {
     api.documentos.listar(processoId).then(setDocs).finally(() => setLoading(false));
@@ -151,14 +168,20 @@ function AbaDocumentos({ processoId }: { processoId: string }) {
     erro:        "bg-red-100 text-red-700",
   };
 
+  const docsFiltrados = docs.filter(d =>
+    d.nome_original.toLowerCase().includes(busca.toLowerCase()) ||
+    d.status.toLowerCase().includes(busca.toLowerCase())
+  );
+
   if (loading) return <div className="flex justify-center py-12"><Spinner /></div>;
 
   return (
     <>
       <div className="space-y-3">
-        <div className="flex justify-end">
+        <div className="flex items-center gap-3">
+          <div className="flex-1"><SearchBar value={busca} onChange={setBusca} placeholder="Buscar documentos…" /></div>
           <a href={`/upload?processo=${processoId}`}
-            className="bg-gold text-navy font-semibold rounded-lg px-4 py-2 text-sm hover:bg-gold-light transition-all">
+            className="bg-gold text-navy font-semibold rounded-lg px-4 py-2 text-sm hover:bg-gold-light transition-all whitespace-nowrap">
             + Enviar Documento
           </a>
         </div>
@@ -170,7 +193,7 @@ function AbaDocumentos({ processoId }: { processoId: string }) {
           </div>
         )}
 
-        {docs.map(d => (
+        {docsFiltrados.map(d => (
           <div key={d.id}
             className="bg-bg rounded-xl border border-border p-4 flex items-start justify-between gap-4 hover:border-gold/40 transition-colors cursor-pointer"
             onClick={() => d.status === "processado" && handleVerConteudo(d)}>
@@ -360,6 +383,7 @@ function AbaCronologia({ processoId }: { processoId: string }) {
   const [modalEvento, setModalEvento] = useState<{ form: EventoForm; id?: string } | null>(null);
   const [salvando, setSalvando] = useState(false);
   const [deletando, setDeletando] = useState<string | null>(null);
+  const [busca, setBusca] = useState("");
 
   useEffect(() => {
     api.cronologia.listar(processoId).then(setEventos).finally(() => setLoading(false));
@@ -410,13 +434,20 @@ function AbaCronologia({ processoId }: { processoId: string }) {
     setEventos(prev => prev.map(e => e.id === id ? ev : e));
   }
 
+  const eventosFiltrados = eventos.filter(ev =>
+    ev.descricao.toLowerCase().includes(busca.toLowerCase()) ||
+    ev.tipo_evento.toLowerCase().includes(busca.toLowerCase()) ||
+    ev.relevancia.toLowerCase().includes(busca.toLowerCase())
+  );
+
   if (loading) return <div className="flex justify-center py-12"><Spinner /></div>;
 
   return (
     <>
-      <div className="flex justify-end mb-4">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="flex-1"><SearchBar value={busca} onChange={setBusca} placeholder="Buscar eventos…" /></div>
         <button onClick={() => setModalEvento({ form: EVENTO_FORM_VAZIO })}
-          className="bg-gold text-navy font-semibold rounded-lg px-4 py-2 text-sm hover:bg-gold-light transition-all">
+          className="bg-gold text-navy font-semibold rounded-lg px-4 py-2 text-sm hover:bg-gold-light transition-all whitespace-nowrap">
           + Novo Evento
         </button>
       </div>
@@ -430,7 +461,7 @@ function AbaCronologia({ processoId }: { processoId: string }) {
       <div className="relative">
         {eventos.length > 0 && <div className="absolute left-4 top-0 bottom-0 w-px bg-border" />}
         <div className="space-y-4 pl-10">
-          {eventos.map(ev => (
+          {eventosFiltrados.map(ev => (
             <div key={ev.id} className="relative">
               <div className={`absolute -left-6 top-3 w-3 h-3 rounded-full border-2 border-surface
                 ${ev.relevancia === "critica" ? "bg-red-500" : ev.relevancia === "alta" ? "bg-orange-400" : ev.relevancia === "media" ? "bg-gold" : "bg-green-400"}`} />
@@ -637,7 +668,7 @@ function AnaliseConteudo({ conteudo }: { conteudo: Record<string, unknown> }) {
   return <div className="text-sm">{renderValue(conteudo)}</div>;
 }
 
-function AbaAnalises({ processoId }: { processoId: string }) {
+function AbaAnalises({ processoId, onRefreshProcesso }: { processoId: string; onRefreshProcesso: () => void }) {
   const [analises, setAnalises] = useState<Analise[]>([]);
   const [docs, setDocs] = useState<Documento[]>([]);
   const [loading, setLoading] = useState(true);
@@ -647,6 +678,7 @@ function AbaAnalises({ processoId }: { processoId: string }) {
   const [docsSelecionados, setDocsSelecionados] = useState<string[]>([]);
   const [mostrarSeletor, setMostrarSeletor] = useState(false);
   const [tipoSelecionado, setTipoSelecionado] = useState<string | null>(null);
+  const [busca, setBusca] = useState("");
 
   useEffect(() => {
     Promise.all([
@@ -691,6 +723,7 @@ function AbaAnalises({ processoId }: { processoId: string }) {
       await api.analises.deletar(processoId, analiseId);
       setAnalises(prev => prev.filter(a => a.id !== analiseId));
       if (modalAnalise?.id === analiseId) setModalAnalise(null);
+      onRefreshProcesso(); // update tarefas_pendentes badge
     } catch (e) {
       alert(e instanceof Error ? e.message : "Erro ao excluir");
     } finally {
@@ -710,6 +743,12 @@ function AbaAnalises({ processoId }: { processoId: string }) {
     rejeitada: "bg-red-100 text-red-700",
     editada:   "bg-blue-100 text-blue-700",
   };
+
+  const analisesFiltradas = analises.filter(a => {
+    const label = TIPOS_ANALISE.find(t => t.id === a.tipo)?.label ?? a.tipo;
+    return label.toLowerCase().includes(busca.toLowerCase()) ||
+      a.status_revisao.toLowerCase().includes(busca.toLowerCase());
+  });
 
   return (
     <>
@@ -733,8 +772,13 @@ function AbaAnalises({ processoId }: { processoId: string }) {
 
         {loading && <div className="flex justify-center py-8"><Spinner /></div>}
 
+        {/* Busca */}
+        {!loading && analises.length > 0 && (
+          <SearchBar value={busca} onChange={setBusca} placeholder="Buscar análises…" />
+        )}
+
         {/* Lista de análises */}
-        {analises.map(a => (
+        {analisesFiltradas.map(a => (
           <div key={a.id}
             className="bg-bg rounded-xl border border-border hover:border-gold/40 transition-colors cursor-pointer"
             onClick={() => setModalAnalise(a)}>
@@ -896,10 +940,11 @@ function ModalTarefa({ tarefa, onUpdate, onClose }: {
   );
 }
 
-function AbaRevisao({ processoId }: { processoId: string }) {
+function AbaRevisao({ processoId, onRefreshProcesso }: { processoId: string; onRefreshProcesso: () => void }) {
   const [tarefas, setTarefas] = useState<TarefaRevisao[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalTarefa, setModalTarefa] = useState<TarefaRevisao | null>(null);
+  const [busca, setBusca] = useState("");
 
   useEffect(() => {
     api.revisao.tarefas(undefined, processoId).then(setTarefas).finally(() => setLoading(false));
@@ -913,13 +958,22 @@ function AbaRevisao({ processoId }: { processoId: string }) {
     cancelado:  "bg-gray-100 text-gray-500",
   };
 
+  const tarefasFiltradas = tarefas.filter(t =>
+    t.titulo.toLowerCase().includes(busca.toLowerCase()) ||
+    t.status.toLowerCase().includes(busca.toLowerCase()) ||
+    t.prioridade.toLowerCase().includes(busca.toLowerCase())
+  );
+
   if (loading) return <div className="flex justify-center py-12"><Spinner /></div>;
   if (!tarefas.length) return <div className="text-center py-16 text-muted text-sm">Nenhuma tarefa de revisão.</div>;
 
   return (
     <>
+      <div className="mb-4">
+        <SearchBar value={busca} onChange={setBusca} placeholder="Buscar tarefas…" />
+      </div>
       <div className="space-y-3">
-        {tarefas.map(t => (
+        {tarefasFiltradas.map(t => (
           <div key={t.id}
             className="bg-bg rounded-xl border border-border p-4 hover:border-gold/40 transition-colors cursor-pointer"
             onClick={() => setModalTarefa(t)}>
@@ -940,11 +994,13 @@ function AbaRevisao({ processoId }: { processoId: string }) {
                   <Btn variant="green" onClick={async () => {
                     const upd = await api.revisao.atualizar(t.id, { status: "aprovado" });
                     setTarefas(prev => prev.map(x => x.id === t.id ? upd : x));
+                    onRefreshProcesso();
                   }}>Aprovar</Btn>
                   <Btn variant="danger" onClick={async () => {
                     const c = prompt("Comentário:") ?? "";
                     const upd = await api.revisao.atualizar(t.id, { status: "rejeitado", comentario: c });
                     setTarefas(prev => prev.map(x => x.id === t.id ? upd : x));
+                    onRefreshProcesso();
                   }}>Rejeitar</Btn>
                 </div>
               )}
@@ -959,6 +1015,7 @@ function AbaRevisao({ processoId }: { processoId: string }) {
           onUpdate={upd => {
             setTarefas(prev => prev.map(x => x.id === upd.id ? upd : x));
             setModalTarefa(upd);
+            onRefreshProcesso();
           }}
           onClose={() => setModalTarefa(null)}
         />
@@ -1059,6 +1116,7 @@ function AbaMinutas({ processoId }: { processoId: string }) {
   const [gerando, setGerando] = useState(false);
   const [modalMinuta, setModalMinuta] = useState<Minuta | null>(null);
   const [form, setForm] = useState({ tipo: "resumo_executivo", titulo: "", instrucoes: "" });
+  const [busca, setBusca] = useState("");
 
   useEffect(() => {
     api.minutas.listar(processoId).then(setMinutas).finally(() => setLoading(false));
@@ -1123,7 +1181,14 @@ function AbaMinutas({ processoId }: { processoId: string }) {
 
         {loading && <div className="flex justify-center py-8"><Spinner /></div>}
 
-        {minutas.map(m => (
+        {!loading && minutas.length > 0 && (
+          <SearchBar value={busca} onChange={setBusca} placeholder="Buscar minutas…" />
+        )}
+
+        {minutas.filter(m =>
+          m.titulo.toLowerCase().includes(busca.toLowerCase()) ||
+          m.status.toLowerCase().includes(busca.toLowerCase())
+        ).map(m => (
           <div key={m.id}
             className="bg-bg rounded-xl border border-border hover:border-gold/40 transition-colors cursor-pointer"
             onClick={() => setModalMinuta(m)}>
@@ -1358,18 +1423,19 @@ export default function ProcessoPage() {
           subtitle={[processo.tribunal, processo.vara, processo.assunto].filter(Boolean).join(" · ") || "Processo Jurídico"}
         />
         <main className="flex-1 p-8">
-          {/* Métricas */}
+          {/* Métricas clicáveis */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
             {[
-              { label: "Documentos",        v: processo.total_documentos,  accent: false },
-              { label: "Peças",             v: processo.total_pecas,       accent: false },
-              { label: "Chunks indexados",  v: processo.total_chunks,      accent: false },
-              { label: "Tarefas pendentes", v: processo.tarefas_pendentes, accent: processo.tarefas_pendentes > 0 },
+              { label: "Documentos",        v: processo.total_documentos,  accent: false, tab: "documentos" as Tab },
+              { label: "Peças",             v: processo.total_pecas,       accent: false, tab: "documentos" as Tab },
+              { label: "Chunks indexados",  v: processo.total_chunks,      accent: false, tab: "documentos" as Tab },
+              { label: "Tarefas pendentes", v: processo.tarefas_pendentes, accent: processo.tarefas_pendentes > 0, tab: "revisao" as Tab },
             ].map(m => (
-              <div key={m.label} className={`bg-surface rounded-xl border p-4 ${m.accent ? "border-yellow-300" : "border-border"}`}>
+              <button key={m.label} onClick={() => setTab(m.tab)}
+                className={`bg-surface rounded-xl border p-4 text-left w-full transition-all hover:shadow-md hover:border-gold/40 cursor-pointer ${m.accent ? "border-yellow-300" : "border-border"}`}>
                 <p className="text-xs text-muted mb-1">{m.label}</p>
                 <p className={`text-2xl font-bold ${m.accent ? "text-yellow-600" : "text-text-main"}`}>{m.v}</p>
-              </div>
+              </button>
             ))}
           </div>
 
@@ -1391,8 +1457,8 @@ export default function ProcessoPage() {
           {/* Conteúdo */}
           {tab === "documentos" && <AbaDocumentos processoId={id} />}
           {tab === "cronologia" && <AbaCronologia processoId={id} />}
-          {tab === "analises"   && <AbaAnalises   processoId={id} />}
-          {tab === "revisao"    && <AbaRevisao    processoId={id} />}
+          {tab === "analises"   && <AbaAnalises   processoId={id} onRefreshProcesso={carregar} />}
+          {tab === "revisao"    && <AbaRevisao    processoId={id} onRefreshProcesso={carregar} />}
           {tab === "minutas"    && <AbaMinutas    processoId={id} />}
           {tab === "snapshots"  && <AbaSnapshots  processoId={id} />}
           {tab === "chat"       && <AbaChat       processoId={id} />}
