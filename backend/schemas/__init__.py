@@ -1,7 +1,8 @@
 from .processo import (
     ProcessoCreate, ProcessoUpdate, ProcessoOut,
     ParteCreate, ParteOut,
-    DocumentoOut, PecaOut, CronologiaOut,
+    DocumentoOut, PecaOut,
+    CronologiaCreate, CronologiaUpdate, CronologiaOut,
     SnapshotOut,
     AnaliseSolicitacao, AnaliseOut,
     ChatRequest, ChatResponse, ChatMensagem,
