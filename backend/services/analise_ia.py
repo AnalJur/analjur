@@ -1,41 +1,51 @@
 """
-Análises jurídicas via Claude.
+Análises jurídicas via Claude — texto completo + sumarização hierárquica para processos grandes.
 """
 
 import uuid
 import json
-from datetime import datetime, timezone
+import functools
+from datetime import date as date_type
 from typing import Optional
 
 import anthropic
+import tiktoken
 from loguru import logger
 
 from ..config import get_settings
 from ..database import get_supabase, sb_run
-from .rag import buscar_chunks, formatar_contexto
 
 settings = get_settings()
 
+_enc = tiktoken.get_encoding("cl100k_base")
+MAX_TOKENS_DIRECT = 150_000
+PECAS_PRIORITARIAS = {"sentenca", "acordao", "decisao_interlocutoria", "peticao_inicial"}
 
-def _utcnow() -> str:
+
+def _utcnow():
+    from datetime import datetime, timezone
     return datetime.now(timezone.utc).isoformat()
 
 
-SYSTEM_BASE = """Você é um assistente jurídico especializado em análise de processos brasileiros.
-Sua função é analisar documentos jurídicos e extrair informações estruturadas.
-IMPORTANTE:
-- Baseie-se APENAS no conteúdo fornecido, nunca invente fatos.
-- Indique sempre a fonte (número da peça/página) de cada informação.
-- Quando houver incerteza, sinalize explicitamente.
-- Nunca tome decisões jurídicas; apenas analise e sugira para revisão humana.
+def _contar_tokens(texto: str) -> int:
+    return len(_enc.encode(texto))
+
+
+SYSTEM_BASE = """Você é um assistente jurídico com conhecimento e perspectiva de advogado sênior especialista com 20 anos de experiência em direito brasileiro.
+Analise os documentos com profundidade, precisão e senso crítico.
+REGRAS:
+- Baseie-se APENAS no conteúdo fornecido. Nunca invente fatos.
+- Cite sempre a fonte (tipo de peça, página) de informações relevantes.
+- Sinalize explicitamente qualquer incerteza.
+- Não tome decisões jurídicas — analise e recomende para revisão humana.
 - Responda SEMPRE em JSON válido conforme o schema solicitado."""
 
 
 PROMPTS = {
     "estado_atual": {
-        "instrucao": """Analise os documentos e retorne o estado atual do processo.
+        "instrucao": """Analise os documentos e retorne o estado atual completo do processo.
 
-JSON schema esperado:
+JSON schema:
 {
   "fase_processual": "string",
   "ultima_movimentacao": {"data": "YYYY-MM-DD ou null", "descricao": "string"},
@@ -43,31 +53,29 @@ JSON schema esperado:
   "pedidos_principais": ["string"],
   "decisoes_relevantes": [{"data": "YYYY-MM-DD ou null", "tipo": "string", "resumo": "string"}],
   "pendencias": ["string"],
-  "prazos_identificados": [{"descricao": "string", "data": "YYYY-MM-DD ou null", "critico": true/false}],
+  "prazos_identificados": [{"descricao": "string", "data": "YYYY-MM-DD ou null", "critico": true}],
   "inconsistencias_documentais": ["string"],
   "confianca": 0.0
 }""",
-        "query_rag": "estado atual fase processual partes pedidos decisões",
     },
     "resumo_executivo": {
-        "instrucao": """Gere um resumo executivo do processo para um advogado sênior.
+        "instrucao": """Gere um resumo executivo completo para um advogado sênior.
 
-JSON schema esperado:
+JSON schema:
 {
   "titulo": "string",
-  "resumo": "string (max 500 chars)",
+  "resumo": "string",
   "pontos_chave": ["string"],
   "situacao_atual": "string",
   "alertas": ["string"],
   "recomendacoes_imediatas": ["string"],
   "confianca": 0.0
 }""",
-        "query_rag": "resumo processo situação atual pontos importantes",
     },
     "riscos": {
-        "instrucao": """Identifique e classifique os riscos jurídicos do processo.
+        "instrucao": """Identifique e classifique todos os riscos jurídicos do processo.
 
-JSON schema esperado:
+JSON schema:
 {
   "riscos": [{"categoria": "prazo | probatorio | legal | estrategico | financeiro",
     "descricao": "string", "severidade": "baixa | media | alta | critica",
@@ -76,39 +84,59 @@ JSON schema esperado:
   "prazo_mais_urgente": {"descricao": "string", "data": "YYYY-MM-DD ou null"},
   "confianca": 0.0
 }""",
-        "query_rag": "riscos prazos vencimentos decisões contrárias",
     },
     "teses": {
-        "instrucao": """Identifique as teses jurídicas presentes e potenciais no processo.
+        "instrucao": """Identifique as teses jurídicas presentes e potenciais.
 
-JSON schema esperado:
+JSON schema:
 {
-  "teses_autor": [{"tese": "string", "fundamento_legal": "string",
-    "status": "acolhida | pendente | rejeitada", "evidencia": "string"}],
-  "teses_reu": [{"tese": "string", "fundamento_legal": "string",
-    "status": "acolhida | pendente | rejeitada", "evidencia": "string"}],
+  "teses_autor": [{"tese": "string", "fundamento_legal": "string", "status": "acolhida | pendente | rejeitada", "evidencia": "string"}],
+  "teses_reu": [{"tese": "string", "fundamento_legal": "string", "status": "acolhida | pendente | rejeitada", "evidencia": "string"}],
   "questoes_ordem_publica": ["string"],
   "teses_potenciais": ["string"],
   "confianca": 0.0
 }""",
-        "query_rag": "teses jurídicas fundamentos legais argumentos contestação",
     },
     "cronologia": {
-        "instrucao": """Extraia a cronologia completa de eventos do processo.
+        "instrucao": """Extraia a cronologia completa de todos os eventos do processo.
 
-JSON schema esperado:
+JSON schema:
 {
-  "eventos": [{"data": "YYYY-MM-DD ou null", "data_aproximada": true/false,
+  "eventos": [{"data": "YYYY-MM-DD ou null", "data_aproximada": false,
     "tipo": "protocolo | despacho | decisao | sentenca | acordao | prazo | audiencia | pericia | recurso | publicacao",
     "descricao": "string", "relevancia": "baixa | media | alta | critica", "fonte_peca": "string"}],
   "confianca": 0.0
 }""",
-        "query_rag": "datas eventos cronologia protocolos decisões publicações",
+    },
+    "proximos_passos": {
+        "instrucao": """Identifique todas as ações jurídicas necessárias nos próximos 90 dias.
+
+JSON schema:
+{
+  "acoes": [{"acao": "string", "tipo": "prazo_legal | diligencia | peticao | audiencia | recurso",
+    "urgencia": "normal | alta | urgente | critica", "prazo": "YYYY-MM-DD ou null",
+    "responsavel_sugerido": "string ou null", "fundamento": "string"}],
+  "alertas_prazo": ["string"],
+  "confianca": 0.0
+}""",
+    },
+    "estrategia": {
+        "instrucao": """Sugira estratégias jurídicas. Apenas sugestões para revisão humana.
+
+JSON schema:
+{
+  "aviso": "Sugestões geradas por IA — revisão humana obrigatória.",
+  "estrategias": [{"estrategia": "string", "justificativa": "string",
+    "vantagens": ["string"], "riscos": ["string"], "evidencias": ["string"]}],
+  "pontos_fortes": ["string"],
+  "pontos_fracos": ["string"],
+  "confianca": 0.0
+}""",
     },
     "impacto_atualizacao": {
-        "instrucao": """Compare os documentos mais recentes com o estado anterior e identifique mudanças.
+        "instrucao": """Compare os documentos e identifique mudanças e novos elementos.
 
-JSON schema esperado:
+JSON schema:
 {
   "novos_documentos": ["string"], "mudancas_fase": "string ou null",
   "novas_decisoes": [{"tipo": "string", "resumo": "string"}],
@@ -117,36 +145,88 @@ JSON schema esperado:
   "acoes_recomendadas": [{"acao": "string", "urgencia": "normal | alta | urgente", "prazo": "string ou null"}],
   "confianca": 0.0
 }""",
-        "query_rag": "atualização mudanças novas decisões novos documentos",
-    },
-    "proximos_passos": {
-        "instrucao": """Identifique as ações jurídicas necessárias nos próximos 90 dias.
-
-JSON schema esperado:
-{
-  "acoes": [{"acao": "string", "tipo": "prazo_legal | diligencia | peticao | audiencia | recurso",
-    "urgencia": "normal | alta | urgente | critica", "prazo": "YYYY-MM-DD ou null",
-    "responsavel_sugerido": "string ou null", "fundamento": "string"}],
-  "alertas_prazo": ["string"],
-  "confianca": 0.0
-}""",
-        "query_rag": "próximas ações prazos diligências recursos",
-    },
-    "estrategia": {
-        "instrucao": """Sugira estratégias jurídicas para o processo. IMPORTANTE: apenas sugestões para revisão humana.
-
-JSON schema esperado:
-{
-  "aviso": "Sugestões geradas por IA — revisão humana obrigatória antes de qualquer decisão.",
-  "estrategias": [{"estrategia": "string", "justificativa": "string",
-    "vantagens": ["string"], "riscos": ["string"], "evidencias": ["string"]}],
-  "pontos_fortes": ["string"],
-  "pontos_fracos": ["string"],
-  "confianca": 0.0
-}""",
-        "query_rag": "estratégia teses favoráveis jurisprudência argumentos",
     },
 }
+
+
+async def _buscar_pecas(processo_id: uuid.UUID) -> list[dict]:
+    sb = get_supabase()
+    result = await sb_run(
+        lambda: sb.table("pecas")
+        .select("id,tipo_peca,pagina_inicio,pagina_fim,conteudo_texto,confianca_classificacao")
+        .eq("processo_id", str(processo_id))
+        .order("pagina_inicio", desc=False)
+        .execute()
+    )
+    return result.data or []
+
+
+def _resumir_peca_sync(peca: dict, client: anthropic.Anthropic) -> str:
+    texto = peca.get("conteudo_texto") or ""
+    tipo = peca.get("tipo_peca", "peca")
+    pags = f"pág. {peca.get('pagina_inicio')}-{peca.get('pagina_fim')}"
+    msg = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=600,
+        messages=[{
+            "role": "user",
+            "content": (
+                f"Resuma esta peça processual ({tipo}, {pags}) em até 400 palavras. "
+                f"Preserve: datas, valores, decisões, prazos, nomes das partes e fundamentos legais.\n\n"
+                f"{texto[:80_000]}"
+            ),
+        }],
+    )
+    return f"[{tipo.upper()} — {pags}]\n{msg.content[0].text.strip()}"
+
+
+def _montar_contexto_direto(pecas: list[dict]) -> str:
+    partes = []
+    for p in pecas:
+        tipo = p.get("tipo_peca", "peca").upper()
+        pags = f"pág. {p.get('pagina_inicio')}-{p.get('pagina_fim')}"
+        texto = p.get("conteudo_texto") or "(sem texto)"
+        partes.append(f"=== {tipo} ({pags}) ===\n{texto}")
+    return "\n\n".join(partes)
+
+
+async def _montar_contexto_hierarquico(pecas: list[dict], client: anthropic.Anthropic) -> str:
+    import asyncio
+    partes = []
+    tokens_usados = 0
+
+    prioritarias = [p for p in pecas if p.get("tipo_peca") in PECAS_PRIORITARIAS]
+    secundarias = [p for p in pecas if p.get("tipo_peca") not in PECAS_PRIORITARIAS]
+
+    for p in prioritarias:
+        texto = p.get("conteudo_texto") or ""
+        toks = _contar_tokens(texto)
+        tipo = p.get("tipo_peca", "peca").upper()
+        pags = f"pág. {p.get('pagina_inicio')}-{p.get('pagina_fim')}"
+        if tokens_usados + toks <= MAX_TOKENS_DIRECT:
+            partes.append(f"=== {tipo} — COMPLETO ({pags}) ===\n{texto}")
+            tokens_usados += toks
+        else:
+            loop = asyncio.get_event_loop()
+            resumo = await loop.run_in_executor(None, functools.partial(_resumir_peca_sync, p, client))
+            partes.append(resumo)
+
+    resumos_sec = []
+    loop = asyncio.get_event_loop()
+    for p in secundarias:
+        resumo = await loop.run_in_executor(None, functools.partial(_resumir_peca_sync, p, client))
+        resumos_sec.append(resumo)
+
+    if resumos_sec:
+        partes.append("=== DEMAIS PEÇAS (resumidas) ===\n" + "\n\n".join(resumos_sec))
+
+    return "\n\n".join(partes)
+
+
+async def _claude_async(client: anthropic.Anthropic, **kwargs) -> anthropic.types.Message:
+    import asyncio
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, functools.partial(client.messages.create, **kwargs))
 
 
 async def gerar_analise(
@@ -161,19 +241,31 @@ async def gerar_analise(
     sb = get_supabase()
     cfg = PROMPTS[tipo]
 
-    chunks = await buscar_chunks(processo_id, cfg["query_rag"], top_k=settings.rag_top_k)
-    if not chunks:
-        raise ValueError("Nenhum chunk encontrado para o processo. Faça o upload de documentos primeiro.")
+    pecas = await _buscar_pecas(processo_id)
+    if not pecas:
+        raise ValueError("Nenhuma peça encontrada. Faça o upload de documentos primeiro.")
 
-    contexto = formatar_contexto(chunks)
-    user_content = f"CONTEXTO DO PROCESSO:\n\n{contexto}"
+    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+
+    total_tokens = sum(_contar_tokens(p.get("conteudo_texto") or "") for p in pecas)
+    logger.info(f"Processo {processo_id}: {len(pecas)} peças, ~{total_tokens:,} tokens")
+
+    if total_tokens <= MAX_TOKENS_DIRECT:
+        contexto = _montar_contexto_direto(pecas)
+        estrategia = "direto"
+    else:
+        logger.info("Processo grande — sumarização hierárquica")
+        contexto = await _montar_contexto_hierarquico(pecas, client)
+        estrategia = "hierarquico"
+
+    user_content = f"DOCUMENTOS DO PROCESSO:\n\n{contexto}"
     if contexto_extra:
         user_content += f"\n\nINSTRUÇÕES ADICIONAIS:\n{contexto_extra}"
     user_content += f"\n\nTAREFA:\n{cfg['instrucao']}"
 
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-    logger.info(f"Gerando análise '{tipo}' para processo {processo_id}")
-    msg = client.messages.create(
+    logger.info(f"Gerando análise '{tipo}' via {estrategia}")
+    msg = await _claude_async(
+        client,
         model=settings.llm_model,
         max_tokens=4096,
         system=SYSTEM_BASE,
@@ -206,16 +298,14 @@ async def gerar_analise(
     analise_r = await sb_run(lambda: sb.table("analises").insert(analise_data).execute())
     analise = analise_r.data[0]
 
-    # Persiste cronologia extraída
     if tipo == "cronologia" and "eventos" in conteudo:
-        from datetime import date as date_type
         cron_rows = []
         for ev in conteudo["eventos"]:
             data = None
             if ev.get("data"):
                 try:
                     data = ev["data"]
-                    date_type.fromisoformat(data)  # valida formato
+                    date_type.fromisoformat(data)
                 except ValueError:
                     data = None
             cron_rows.append({
@@ -232,14 +322,13 @@ async def gerar_analise(
         if cron_rows:
             await sb_run(lambda: sb.table("cronologia").insert(cron_rows).execute())
 
-    # Tarefa de revisão humana
     tarefa_data = {
         "id": str(uuid.uuid4()),
         "processo_id": str(processo_id),
         "analise_id": analise["id"],
         "tipo": "analise",
         "titulo": f"Revisar análise: {tipo.replace('_', ' ').title()}",
-        "descricao": f"Análise gerada por IA com confiança {confianca:.0%}. Revisão humana obrigatória.",
+        "descricao": f"Análise gerada por IA com confiança {confianca:.0%}. Revisão obrigatória.",
         "prioridade": "alta" if confianca < 0.7 else "normal",
         "status": "pendente",
         "atribuido_para": str(usuario_id) if usuario_id else None,
@@ -247,7 +336,7 @@ async def gerar_analise(
     }
     await sb_run(lambda: sb.table("tarefas_revisao").insert(tarefa_data).execute())
 
-    logger.success(f"Análise '{tipo}' gerada — confiança {confianca:.0%}")
+    logger.success(f"Análise '{tipo}' ({estrategia}) — confiança {confianca:.0%}")
     return analise
 
 
@@ -256,24 +345,33 @@ async def chat_processo(
     mensagens: list[dict],
     tipo_peca: Optional[str] = None,
 ) -> tuple[str, list[dict], int]:
-    ultima_query = mensagens[-1]["content"] if mensagens else ""
-    chunks = await buscar_chunks(processo_id, ultima_query, top_k=settings.rag_top_k, tipo_peca=tipo_peca)
-    contexto = formatar_contexto(chunks)
-
-    system = SYSTEM_BASE + f"\n\nCONTEXTO DO PROCESSO (use apenas estas informações):\n\n{contexto}"
+    pecas = await _buscar_pecas(processo_id)
+    if tipo_peca:
+        filtradas = [p for p in pecas if p.get("tipo_peca") == tipo_peca]
+        pecas = filtradas or pecas
 
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-    msg = client.messages.create(
+
+    total_tokens = sum(_contar_tokens(p.get("conteudo_texto") or "") for p in pecas)
+    if total_tokens <= MAX_TOKENS_DIRECT:
+        contexto = _montar_contexto_direto(pecas)
+    else:
+        contexto = await _montar_contexto_hierarquico(pecas, client)
+
+    system = SYSTEM_BASE + f"\n\nCONTEXTO DO PROCESSO:\n\n{contexto}"
+    ultima = mensagens[-1]["content"] if mensagens else ""
+
+    msg = await _claude_async(
+        client,
         model=settings.llm_model,
         max_tokens=2048,
         system=system,
-        messages=mensagens,
+        messages=[{"role": "user", "content": ultima}],
     )
 
-    resposta = msg.content[0].text.strip()
     fontes = [
-        {"tipo_peca": c.get("tipo_peca"), "pagina": c.get("pagina"), "similarity": round(c.get("similarity", 0), 3)}
-        for c in chunks
+        {"tipo_peca": p.get("tipo_peca"), "paginas": f"{p.get('pagina_inicio')}-{p.get('pagina_fim')}"}
+        for p in pecas
     ]
     tokens = msg.usage.input_tokens + msg.usage.output_tokens
-    return resposta, fontes, tokens
+    return msg.content[0].text.strip(), fontes, tokens

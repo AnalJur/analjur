@@ -1,5 +1,5 @@
 """
-Pipeline completo de ingestão via supabase-py.
+Pipeline de ingestão — extrai texto e classifica peças. Sem embeddings.
 """
 
 import hashlib
@@ -13,10 +13,8 @@ from loguru import logger
 
 from ..config import get_settings
 from ..database import get_supabase, sb_run
-from .ocr import extrair_texto_pdf, contar_paginas
-from .chunker import chunkar_paginas
+from .ocr import extrair_texto_pdf
 from .classificador import classificar_peca
-from .embeddings import embeddings_documentos
 
 settings = get_settings()
 
@@ -49,8 +47,7 @@ async def processar_conteudo(
     nome_original: str,
     conteudo: bytes,
 ) -> None:
-    """Processa OCR/classificação/embeddings de um documento já registrado no banco.
-    Chamado como background task — atualiza o status diretamente."""
+    """Processa OCR e classificação em background. Sem embeddings."""
     sb = get_supabase()
 
     tmp_path = Path(tempfile.gettempdir()) / f"{uuid.uuid4()}.pdf"
@@ -59,10 +56,10 @@ async def processar_conteudo(
     try:
         logger.info(f"Extraindo texto de {nome_original}")
         paginas, ocr_utilizado = extrair_texto_pdf(tmp_path)
-        texto_completo = "\n".join(paginas)
+        texto_completo = "\n\n".join(p for p in paginas if p.strip())
 
         classificacao = classificar_peca(texto_completo)
-        logger.info(f"Peça classificada como {classificacao.tipo_peca} ({classificacao.confianca:.0%})")
+        logger.info(f"Peça: {classificacao.tipo_peca} ({classificacao.confianca:.0%})")
 
         peca_data = {
             "id": str(uuid.uuid4()),
@@ -71,42 +68,10 @@ async def processar_conteudo(
             "tipo_peca": classificacao.tipo_peca,
             "pagina_inicio": 1,
             "pagina_fim": len(paginas),
-            "conteudo_texto": texto_completo[:50_000],
+            "conteudo_texto": texto_completo[:500_000],
             "confianca_classificacao": classificacao.confianca,
         }
-        peca_r = await sb_run(lambda: sb.table("pecas").insert(peca_data).execute())
-        peca = peca_r.data[0]
-
-        chunks_raw = chunkar_paginas(
-            paginas,
-            tokens_por_chunk=settings.chunk_tokens,
-            overlap=settings.chunk_overlap,
-        )
-        logger.info(f"{len(chunks_raw)} chunks gerados")
-
-        textos = [c.conteudo for c in chunks_raw]
-        vetores = await embeddings_documentos(textos)
-
-        lote_sb = [
-            {
-                "id": str(uuid.uuid4()),
-                "peca_id": peca["id"],
-                "processo_id": str(processo_id),
-                "tenant_id": str(tenant_id),
-                "conteudo": c.conteudo,
-                "embedding": vetor,
-                "pagina": c.pagina,
-                "chunk_index": c.index,
-                "tokens": c.tokens,
-            }
-            for c, vetor in zip(chunks_raw, vetores)
-        ]
-
-        LOTE = 50
-        for i in range(0, len(lote_sb), LOTE):
-            lote = lote_sb[i: i + LOTE]
-            await sb_run(lambda lote=lote: sb.table("chunks").insert(lote).execute())
-            logger.debug(f"Chunks inseridos {i}–{i + LOTE}")
+        await sb_run(lambda: sb.table("pecas").insert(peca_data).execute())
 
         await sb_run(
             lambda: sb.table("documentos").update({
@@ -116,13 +81,13 @@ async def processar_conteudo(
                 "processado_at": _utcnow(),
             }).eq("id", doc_id).execute()
         )
-        logger.success(f"Documento {nome_original} processado — {len(chunks_raw)} chunks")
+        logger.success(f"Documento {nome_original} processado — {len(paginas)} páginas")
 
     except Exception as e:
         await sb_run(
             lambda: sb.table("documentos").update({
                 "status": "erro",
-                "erro_msg": str(e),
+                "erro_msg": str(e)[:500],
             }).eq("id", doc_id).execute()
         )
         logger.error(f"Erro ao processar {nome_original}: {e}")
@@ -139,12 +104,12 @@ async def processar_documento(
     uploaded_by: Optional[uuid.UUID] = None,
     tmp_path: Optional[Path] = None,
 ) -> dict:
-    """Cria o registro e processa sincronamente (usado pelo worker)."""
+    """Cria registro e processa sincronamente (compatibilidade com worker)."""
     sb = get_supabase()
 
     content_hash = calcular_hash(conteudo)
     if await verificar_duplicata(processo_id, content_hash):
-        raise ValueError(f"Documento já existe no processo (hash {content_hash[:8]}…)")
+        raise ValueError(f"Documento já existe (hash {content_hash[:8]}…)")
 
     doc_data = {
         "id": str(uuid.uuid4()),
@@ -160,11 +125,10 @@ async def processar_documento(
     }
     doc_r = await sb_run(lambda: sb.table("documentos").insert(doc_data).execute())
     doc = doc_r.data[0]
-    doc_id = doc["id"]
 
-    await processar_conteudo(doc_id, processo_id, tenant_id, nome_original, conteudo)
+    await processar_conteudo(doc["id"], processo_id, tenant_id, nome_original, conteudo)
 
     result = await sb_run(
-        lambda: sb.table("documentos").select("*").eq("id", doc_id).limit(1).execute()
+        lambda: sb.table("documentos").select("*").eq("id", doc["id"]).limit(1).execute()
     )
     return result.data[0]
