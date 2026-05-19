@@ -1,0 +1,17 @@
+{
+  "name": "AnalJur — Análise de Processos",
+  "short_name": "AnalJur",
+  "description": "Plataforma de análise inteligente de processos jurídicos com IA.",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#0F1F3D",
+  "theme_color": "#0F1F3D",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "/icon-16.png",           "sizes": "16x16",     "type": "image/png" },
+    { "src": "/icon-32.png",           "sizes": "32x32",     "type": "image/png" },
+    { "src": "/apple-touch-icon.png",  "sizes": "180x180",   "type": "image/png" },
+    { "src": "/icon-192.png",          "sizes": "192x192",   "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icon-512.png",          "sizes": "512x512",   "type": "image/png", "purpose": "any maskable" }
+  ]
+}
