@@ -267,8 +267,8 @@ export default function DashboardPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-gray-50 border-b border-border">
-                      {["Processo", "Tribunal / Vara", "Status", "Docs", "Tarefas", "Última atualização", ""].map(h => (
-                        <th key={h} className="text-left px-5 py-3 font-semibold text-muted text-xs uppercase tracking-wider">
+                      {["Processo / Assunto", "Tribunal · Vara", "Status", "Docs", "Tarefas", "Atualização", ""].map(h => (
+                        <th key={h} className="text-left px-4 py-2.5 font-semibold text-muted text-xs uppercase tracking-wider whitespace-nowrap">
                           {h}
                         </th>
                       ))}
@@ -277,44 +277,54 @@ export default function DashboardPage() {
                   <tbody className="divide-y divide-border">
                     {processosFiltrados.map((p) => (
                       <tr key={p.id} className="hover:bg-gold/5 transition-colors">
-                        <td className="px-5 py-4">
-                          <div className="font-semibold text-text-main text-xs font-mono">{p.numero_cnj ?? p.id.slice(0, 8) + "…"}</div>
-                          {p.assunto && <div className="text-muted text-xs mt-0.5 max-w-xs truncate">{p.assunto}</div>}
+                        {/* Número + Assunto em linha única */}
+                        <td className="px-4 py-2.5 max-w-[260px]">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="font-semibold text-text-main text-xs font-mono whitespace-nowrap">
+                              {p.numero_cnj ?? p.id.slice(0, 8) + "…"}
+                            </span>
+                            {p.assunto && (
+                              <>
+                                <span className="text-border text-xs">·</span>
+                                <span className="text-muted text-xs truncate">{p.assunto}</span>
+                              </>
+                            )}
+                          </div>
                         </td>
-                        <td className="px-5 py-4 text-muted text-xs">
+                        <td className="px-4 py-2.5 text-muted text-xs whitespace-nowrap">
                           {[p.tribunal, p.vara].filter(Boolean).join(" · ") || "—"}
                         </td>
-                        <td className="px-5 py-4">
+                        <td className="px-4 py-2.5">
                           <StatusBadge status={p.status} />
                         </td>
-                        <td className="px-5 py-4 text-center">
-                          <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-gold/10 text-gold font-semibold text-xs">
+                        <td className="px-4 py-2.5 text-center">
+                          <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-gold/10 text-gold font-semibold text-xs">
                             {p.total_documentos}
                           </span>
                         </td>
-                        <td className="px-5 py-4">
-                          <div className="flex items-center gap-2">
+                        <td className="px-4 py-2.5 whitespace-nowrap">
+                          <div className="flex items-center gap-1.5">
                             <PrioridadeDot n={p.tarefas_pendentes} />
-                            <span className="text-xs text-muted">{p.tarefas_pendentes} pendente{p.tarefas_pendentes !== 1 ? "s" : ""}</span>
+                            <span className="text-xs text-muted">{p.tarefas_pendentes} pend.</span>
                           </div>
                         </td>
-                        <td className="px-5 py-4 text-xs text-muted">
+                        <td className="px-4 py-2.5 text-xs text-muted whitespace-nowrap">
                           {p.updated_at ? new Date(p.updated_at).toLocaleDateString("pt-BR") : "—"}
                         </td>
-                        <td className="px-5 py-4 text-right">
-                          <div className="flex items-center justify-end gap-1">
+                        <td className="px-4 py-2.5 text-right">
+                          <div className="flex items-center justify-end gap-0.5">
                             <button onClick={() => router.push(`/processo/${p.id}`)}
-                              className="text-xs font-semibold text-gold hover:text-gold-light px-3 py-1.5 rounded-lg hover:bg-gold/10 transition-all">
+                              className="text-xs font-semibold text-gold hover:text-gold-light px-2.5 py-1 rounded-lg hover:bg-gold/10 transition-all">
                               Abrir
                             </button>
                             <button onClick={() => router.push(`/upload?processo=${p.id}`)}
-                              className="text-xs font-semibold text-muted hover:text-text-main px-3 py-1.5 rounded-lg hover:bg-bg transition-all">
+                              className="text-xs font-semibold text-muted hover:text-text-main px-2.5 py-1 rounded-lg hover:bg-bg transition-all">
                               + Doc
                             </button>
                             <button onClick={() => handleDeletar(p.id, p.assunto ?? p.numero_cnj)}
                               disabled={deletando === p.id}
-                              className="text-xs font-semibold text-danger hover:text-red-400 px-3 py-1.5 rounded-lg hover:bg-danger/10 transition-all disabled:opacity-50">
-                              {deletando === p.id ? "..." : "Excluir"}
+                              className="text-xs font-semibold text-danger hover:text-red-400 px-2.5 py-1 rounded-lg hover:bg-danger/10 transition-all disabled:opacity-50">
+                              {deletando === p.id ? "…" : "Excluir"}
                             </button>
                           </div>
                         </td>
