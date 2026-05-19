@@ -1383,6 +1383,138 @@ function AbaChat({ processoId }: { processoId: string }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// MODAL: EDITAR PROCESSO
+// ════════════════════════════════════════════════════════════════════════════
+
+const STATUS_OPTIONS = ["ativo", "arquivado", "suspenso"];
+
+function ModalEditarProcesso({ processo, onSalvar, onFechar }: {
+  processo: Processo;
+  onSalvar: (p: Processo) => void;
+  onFechar: () => void;
+}) {
+  const [form, setForm] = useState({
+    numero_cnj:  processo.numero_cnj  ?? "",
+    tribunal:    processo.tribunal    ?? "",
+    vara:        processo.vara        ?? "",
+    assunto:     processo.assunto     ?? "",
+    status:      processo.status      ?? "ativo",
+    responsavel: processo.responsavel ?? "",
+    tags:        (processo.tags ?? []).join(", "),
+  });
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState("");
+
+  const set = (k: keyof typeof form, v: string) =>
+    setForm(f => ({ ...f, [k]: v }));
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSalvando(true);
+    setErro("");
+    try {
+      const tags = form.tags
+        .split(",")
+        .map(t => t.trim())
+        .filter(Boolean);
+
+      const atualizado = await api.processos.atualizar(processo.id, {
+        numero_cnj:  form.numero_cnj  || undefined,
+        tribunal:    form.tribunal    || undefined,
+        vara:        form.vara        || undefined,
+        assunto:     form.assunto     || undefined,
+        status:      form.status,
+        responsavel: form.responsavel || undefined,
+        tags,
+      });
+      onSalvar(atualizado);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "Erro ao salvar");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  const input = "w-full border border-border rounded-lg px-3 py-2 text-sm bg-bg text-text-main focus:outline-none focus:ring-2 focus:ring-gold/40";
+
+  return (
+    <Modal title="Editar Processo" onClose={onFechar} wide>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {erro && (
+          <div className="px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-600">
+            {erro}
+          </div>
+        )}
+
+        {/* Número CNJ */}
+        <div>
+          <label className="block text-xs font-semibold text-muted mb-1">Número CNJ</label>
+          <input className={input} placeholder="0000000-00.0000.0.00.0000"
+            value={form.numero_cnj} onChange={e => set("numero_cnj", e.target.value)} />
+        </div>
+
+        {/* Tribunal + Vara */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-semibold text-muted mb-1">Tribunal</label>
+            <input className={input} placeholder="TJSP, TRF3, STJ…"
+              value={form.tribunal} onChange={e => set("tribunal", e.target.value)} />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-muted mb-1">Vara / Câmara</label>
+            <input className={input} placeholder="1ª Vara Cível…"
+              value={form.vara} onChange={e => set("vara", e.target.value)} />
+          </div>
+        </div>
+
+        {/* Assunto */}
+        <div>
+          <label className="block text-xs font-semibold text-muted mb-1">Assunto</label>
+          <input className={input} placeholder="Indenização por danos morais…"
+            value={form.assunto} onChange={e => set("assunto", e.target.value)} />
+        </div>
+
+        {/* Status + Responsável */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-semibold text-muted mb-1">Status</label>
+            <select className={input} value={form.status}
+              onChange={e => set("status", e.target.value)}>
+              {STATUS_OPTIONS.map(s => (
+                <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-muted mb-1">Responsável</label>
+            <input className={input} placeholder="Nome do advogado…"
+              value={form.responsavel} onChange={e => set("responsavel", e.target.value)} />
+          </div>
+        </div>
+
+        {/* Tags */}
+        <div>
+          <label className="block text-xs font-semibold text-muted mb-1">
+            Tags <span className="font-normal text-muted">(separadas por vírgula)</span>
+          </label>
+          <input className={input} placeholder="urgente, trabalhista, recurso…"
+            value={form.tags} onChange={e => set("tags", e.target.value)} />
+        </div>
+
+        {/* Ações */}
+        <div className="flex gap-2 justify-end pt-2 border-t border-border">
+          <Btn onClick={onFechar} disabled={salvando}>Cancelar</Btn>
+          <button type="submit" disabled={salvando}
+            className="bg-gold text-navy font-semibold rounded-lg px-5 py-2 text-sm hover:bg-gold-light transition-all disabled:opacity-50 flex items-center gap-2">
+            {salvando ? <><Spinner sm /> Salvando…</> : "Salvar alterações"}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // PÁGINA PRINCIPAL
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -1392,6 +1524,7 @@ export default function ProcessoPage() {
   const [processo, setProcesso] = useState<Processo | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("documentos");
+  const [modalEditar, setModalEditar] = useState(false);
 
   const carregar = useCallback(async () => {
     try {
@@ -1422,7 +1555,63 @@ export default function ProcessoPage() {
           title={processo.numero_cnj ?? processo.id.slice(0, 8) + "…"}
           subtitle={[processo.tribunal, processo.vara, processo.assunto].filter(Boolean).join(" · ") || "Processo Jurídico"}
         />
-        <main className="flex-1 p-8">
+        <main className="flex-1 p-6 sm:p-8">
+          {/* Cabeçalho do processo — info + botão editar */}
+          <div className="bg-surface rounded-xl border border-border p-4 mb-5 flex flex-wrap items-start justify-between gap-3">
+            <div className="flex-1 min-w-0 space-y-1.5">
+              {/* Número CNJ */}
+              <p className="text-base font-bold text-text-main font-mono">
+                {processo.numero_cnj ?? <span className="text-muted italic text-sm">Sem número CNJ</span>}
+              </p>
+
+              {/* Tribunal · Vara · Assunto */}
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+                {processo.tribunal && <span className="font-semibold text-text-main">{processo.tribunal}</span>}
+                {processo.vara     && <><span className="text-border">·</span><span>{processo.vara}</span></>}
+                {processo.assunto  && <><span className="text-border">·</span><span className="truncate max-w-xs">{processo.assunto}</span></>}
+              </div>
+
+              {/* Status + Responsável + Tags */}
+              <div className="flex flex-wrap items-center gap-2 mt-1">
+                {/* Status badge */}
+                {{
+                  ativo:     "bg-green-100 text-green-700",
+                  arquivado: "bg-gray-100 text-gray-500",
+                  suspenso:  "bg-yellow-100 text-yellow-700",
+                }[processo.status] && (
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${{
+                    ativo: "bg-green-100 text-green-700",
+                    arquivado: "bg-gray-100 text-gray-500",
+                    suspenso: "bg-yellow-100 text-yellow-700",
+                  }[processo.status] ?? "bg-gray-100 text-gray-500"}`}>
+                    {processo.status}
+                  </span>
+                )}
+                {processo.responsavel && (
+                  <span className="text-xs text-muted flex items-center gap-1">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                    {processo.responsavel}
+                  </span>
+                )}
+                {processo.tags?.map(tag => (
+                  <span key={tag} className="text-xs bg-gold/10 text-gold px-2 py-0.5 rounded-full">{tag}</span>
+                ))}
+              </div>
+            </div>
+
+            {/* Botão editar */}
+            <button
+              onClick={() => setModalEditar(true)}
+              className="flex items-center gap-1.5 text-xs font-semibold text-muted hover:text-text-main px-3 py-2 rounded-lg border border-border hover:border-gold/40 hover:bg-bg transition-all flex-shrink-0"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+              </svg>
+              Editar processo
+            </button>
+          </div>
+
           {/* Métricas clicáveis */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
             {[
@@ -1464,6 +1653,15 @@ export default function ProcessoPage() {
           {tab === "chat"       && <AbaChat       processoId={id} />}
         </main>
       </div>
+
+      {/* Modal editar processo */}
+      {modalEditar && (
+        <ModalEditarProcesso
+          processo={processo}
+          onSalvar={p => { setProcesso(p); setModalEditar(false); }}
+          onFechar={() => setModalEditar(false)}
+        />
+      )}
     </div>
   );
 }
