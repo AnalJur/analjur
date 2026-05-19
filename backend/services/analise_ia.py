@@ -1,5 +1,10 @@
 """
-Análises jurídicas via Claude — texto completo + sumarização hierárquica para processos grandes.
+Análises jurídicas via Claude.
+
+Estratégias por tamanho:
+  ≤ 185K tokens  → contexto direto (tudo enviado de uma vez)
+  >  185K tokens → sumarização hierárquica por peça
+  cronologia grande → multi-pass por blocos de 80K tokens + consolidação
 """
 
 import uuid
@@ -18,8 +23,18 @@ from ..database import get_supabase, sb_run
 settings = get_settings()
 
 _enc = tiktoken.get_encoding("cl100k_base")
-MAX_TOKENS_DIRECT = 150_000
-PECAS_PRIORITARIAS = {"sentenca", "acordao", "decisao_interlocutoria", "peticao_inicial"}
+
+# Claude 3.x suporta até 200K tokens de contexto;
+# usamos 185K como teto seguro (deixa margem pro prompt + resposta).
+MAX_TOKENS_DIRECT  = 185_000
+CHUNK_TOKENS_CRON  = 80_000   # bloco para multi-pass de cronologia
+CHUNK_OVERLAP      = 2_000    # sobreposição entre blocos
+RESUMO_MAX_TOKENS  = 2_500    # tokens de saída por peça resumida (era 600)
+
+PECAS_PRIORITARIAS = {
+    "sentenca", "acordao", "decisao_interlocutoria", "peticao_inicial",
+    "contestacao", "recurso",
+}
 
 
 def _utcnow():
@@ -31,7 +46,8 @@ def _contar_tokens(texto: str) -> int:
     return len(_enc.encode(texto))
 
 
-SYSTEM_BASE = """Você é um assistente jurídico com conhecimento e perspectiva de advogado sênior especialista com 20 anos de experiência em direito brasileiro.
+SYSTEM_BASE = """Você é um assistente jurídico com conhecimento e perspectiva de advogado sênior especialista \
+com 20 anos de experiência em direito brasileiro.
 Analise os documentos com profundidade, precisão e senso crítico.
 REGRAS:
 - Baseie-se APENAS no conteúdo fornecido. Nunca invente fatos.
@@ -103,7 +119,7 @@ JSON schema:
 JSON schema:
 {
   "eventos": [{"data": "YYYY-MM-DD ou null", "data_aproximada": false,
-    "tipo": "protocolo | despacho | decisao | sentenca | acordao | prazo | audiencia | pericia | recurso | publicacao",
+    "tipo": "protocolo | despacho | decisao | sentenca | acordao | prazo | audiencia | pericia | recurso | publicacao | citacao | intimacao | outro",
     "descricao": "string", "relevancia": "baixa | media | alta | critica", "fonte_peca": "string"}],
   "confianca": 0.0
 }""",
@@ -149,6 +165,8 @@ JSON schema:
 }
 
 
+# ── Busca de peças ─────────────────────────────────────────────────────────────
+
 async def _buscar_pecas(
     processo_id: uuid.UUID,
     documento_ids: Optional[list[uuid.UUID]] = None,
@@ -165,49 +183,63 @@ async def _buscar_pecas(
     return result.data or []
 
 
+# ── Montagem de contexto ──────────────────────────────────────────────────────
+
+def _montar_contexto_direto(pecas: list[dict]) -> str:
+    """Concatena todas as peças com cabeçalho. Usado quando cabem no contexto."""
+    partes = []
+    for p in pecas:
+        tipo  = p.get("tipo_peca", "peca").upper()
+        pags  = f"pág. {p.get('pagina_inicio')}-{p.get('pagina_fim')}"
+        texto = p.get("conteudo_texto") or "(sem texto)"
+        partes.append(f"=== {tipo} ({pags}) ===\n{texto}")
+    return "\n\n".join(partes)
+
+
 def _resumir_peca_sync(peca: dict, client: anthropic.Anthropic) -> str:
+    """Resume uma peça individual usando Haiku (rápido, barato)."""
     texto = peca.get("conteudo_texto") or ""
-    tipo = peca.get("tipo_peca", "peca")
-    pags = f"pág. {peca.get('pagina_inicio')}-{peca.get('pagina_fim')}"
+    tipo  = peca.get("tipo_peca", "peca")
+    pags  = f"pág. {peca.get('pagina_inicio')}-{peca.get('pagina_fim')}"
     msg = client.messages.create(
         model="claude-haiku-4-5-20251001",
-        max_tokens=600,
+        max_tokens=RESUMO_MAX_TOKENS,
         messages=[{
             "role": "user",
             "content": (
-                f"Resuma esta peça processual ({tipo}, {pags}) em até 400 palavras. "
-                f"Preserve: datas, valores, decisões, prazos, nomes das partes e fundamentos legais.\n\n"
-                f"{texto[:80_000]}"
+                f"Resuma esta peça processual ({tipo}, {pags}) preservando TODOS os detalhes importantes: "
+                f"datas (DD/MM/AAAA), valores monetários, nomes das partes e advogados, "
+                f"fundamentos legais citados, decisões, prazos e determinações. "
+                f"Seja extenso o suficiente para que a análise posterior não perca informação crucial.\n\n"
+                f"{texto[:100_000]}"
             ),
         }],
     )
     return f"[{tipo.upper()} — {pags}]\n{msg.content[0].text.strip()}"
 
 
-def _montar_contexto_direto(pecas: list[dict]) -> str:
-    partes = []
-    for p in pecas:
-        tipo = p.get("tipo_peca", "peca").upper()
-        pags = f"pág. {p.get('pagina_inicio')}-{p.get('pagina_fim')}"
-        texto = p.get("conteudo_texto") or "(sem texto)"
-        partes.append(f"=== {tipo} ({pags}) ===\n{texto}")
-    return "\n\n".join(partes)
-
-
 async def _montar_contexto_hierarquico(pecas: list[dict], client: anthropic.Anthropic) -> str:
+    """
+    Para documentos que não cabem no contexto direto:
+    - Peças prioritárias: texto completo (se couber) ou resumo longo
+    - Demais peças: resumo detalhado
+    """
     import asyncio
     partes = []
     tokens_usados = 0
 
     prioritarias = [p for p in pecas if p.get("tipo_peca") in PECAS_PRIORITARIAS]
-    secundarias = [p for p in pecas if p.get("tipo_peca") not in PECAS_PRIORITARIAS]
+    secundarias  = [p for p in pecas if p.get("tipo_peca") not in PECAS_PRIORITARIAS]
 
+    # Peças prioritárias: tenta texto completo
     for p in prioritarias:
         texto = p.get("conteudo_texto") or ""
-        toks = _contar_tokens(texto)
-        tipo = p.get("tipo_peca", "peca").upper()
-        pags = f"pág. {p.get('pagina_inicio')}-{p.get('pagina_fim')}"
-        if tokens_usados + toks <= MAX_TOKENS_DIRECT:
+        toks  = _contar_tokens(texto)
+        tipo  = p.get("tipo_peca", "peca").upper()
+        pags  = f"pág. {p.get('pagina_inicio')}-{p.get('pagina_fim')}"
+
+        # Reserva 30K de margem para o prompt de análise + resposta
+        if tokens_usados + toks <= MAX_TOKENS_DIRECT - 30_000:
             partes.append(f"=== {tipo} — COMPLETO ({pags}) ===\n{texto}")
             tokens_usados += toks
         else:
@@ -215,8 +247,9 @@ async def _montar_contexto_hierarquico(pecas: list[dict], client: anthropic.Anth
             resumo = await loop.run_in_executor(None, functools.partial(_resumir_peca_sync, p, client))
             partes.append(resumo)
 
-    resumos_sec = []
+    # Peças secundárias: sempre resumidas
     loop = asyncio.get_event_loop()
+    resumos_sec = []
     for p in secundarias:
         resumo = await loop.run_in_executor(None, functools.partial(_resumir_peca_sync, p, client))
         resumos_sec.append(resumo)
@@ -227,11 +260,125 @@ async def _montar_contexto_hierarquico(pecas: list[dict], client: anthropic.Anth
     return "\n\n".join(partes)
 
 
+# ── Multi-pass para cronologia ────────────────────────────────────────────────
+
+_INSTRUCAO_CHUNK_CRON = """Extraia TODOS os eventos cronológicos deste trecho do processo judicial.
+Inclua: protocolos, decisões, despachos, publicações, prazos, audiências, citações, intimações, recursos, perícias.
+
+Responda SOMENTE com JSON válido:
+{
+  "eventos": [
+    {
+      "data": "YYYY-MM-DD ou null",
+      "data_aproximada": false,
+      "tipo": "protocolo | despacho | decisao | sentenca | acordao | prazo | audiencia | pericia | recurso | publicacao | citacao | intimacao | outro",
+      "descricao": "descrição completa do evento",
+      "relevancia": "baixa | media | alta | critica",
+      "fonte_peca": "tipo e página de origem"
+    }
+  ]
+}
+
+Se não há eventos neste trecho, retorne {"eventos": []}."""
+
+
+async def _cronologia_multipass(
+    pecas: list[dict],
+    client: anthropic.Anthropic,
+) -> list[dict]:
+    """
+    Processa o documento em blocos de CHUNK_TOKENS_CRON tokens.
+    Extrai eventos de cada bloco com Haiku (rápido) e consolida.
+    """
+    import asyncio
+
+    # Concatena tudo em ordem de página
+    texto_total = ""
+    for p in pecas:
+        tipo  = p.get("tipo_peca", "peca").upper()
+        pags  = f"pág. {p.get('pagina_inicio')}-{p.get('pagina_fim')}"
+        texto = p.get("conteudo_texto") or ""
+        texto_total += f"\n\n=== {tipo} ({pags}) ===\n{texto}"
+
+    tokens_total = _enc.encode(texto_total)
+    total = len(tokens_total)
+    logger.info(f"Cronologia multi-pass: {total:,} tokens totais")
+
+    if total == 0:
+        return []
+
+    # Divide em blocos com sobreposição
+    blocos: list[str] = []
+    step = CHUNK_TOKENS_CRON - CHUNK_OVERLAP
+    for inicio in range(0, total, step):
+        fim = min(inicio + CHUNK_TOKENS_CRON, total)
+        blocos.append(_enc.decode(tokens_total[inicio:fim]))
+
+    logger.info(f"Cronologia multi-pass: {len(blocos)} bloco(s)")
+
+    todos_eventos: list[dict] = []
+
+    async def processar_bloco(idx: int, bloco: str) -> list[dict]:
+        try:
+            loop = asyncio.get_event_loop()
+            msg = await loop.run_in_executor(
+                None,
+                functools.partial(
+                    client.messages.create,
+                    model="claude-haiku-4-5-20251001",
+                    max_tokens=4096,
+                    system=SYSTEM_BASE,
+                    messages=[{
+                        "role": "user",
+                        "content": (
+                            f"TRECHO {idx + 1}/{len(blocos)} DO PROCESSO:\n\n"
+                            f"{bloco}\n\nTAREFA:\n{_INSTRUCAO_CHUNK_CRON}"
+                        ),
+                    }],
+                ),
+            )
+            raw = msg.content[0].text.strip()
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[1].rsplit("```", 1)[0]
+            data = json.loads(raw)
+            evs = data.get("eventos", [])
+            logger.info(f"  Bloco {idx + 1}: {len(evs)} eventos")
+            return evs
+        except Exception as e:
+            logger.warning(f"  Bloco {idx + 1} falhou: {e}")
+            return []
+
+    # Processa blocos sequencialmente para não sobrecarregar a API
+    for idx, bloco in enumerate(blocos):
+        evs = await processar_bloco(idx, bloco)
+        todos_eventos.extend(evs)
+
+    # Deduplicação simples: remove eventos com mesma data+tipo+descricao_inicio
+    seen: set[tuple] = set()
+    dedup: list[dict] = []
+    for ev in todos_eventos:
+        chave = (
+            ev.get("data") or "",
+            ev.get("tipo") or "",
+            (ev.get("descricao") or "")[:60],
+        )
+        if chave not in seen:
+            seen.add(chave)
+            dedup.append(ev)
+
+    logger.info(f"Cronologia multi-pass: {len(todos_eventos)} eventos → {len(dedup)} após dedup")
+    return dedup
+
+
+# ── Wrapper assíncrono para Claude ────────────────────────────────────────────
+
 async def _claude_async(client: anthropic.Anthropic, **kwargs) -> anthropic.types.Message:
     import asyncio
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, functools.partial(client.messages.create, **kwargs))
 
+
+# ── Função principal ──────────────────────────────────────────────────────────
 
 async def gerar_analise(
     processo_id: uuid.UUID,
@@ -243,7 +390,7 @@ async def gerar_analise(
     if tipo not in PROMPTS:
         raise ValueError(f"Tipo de análise inválido: {tipo}")
 
-    sb = get_supabase()
+    sb  = get_supabase()
     cfg = PROMPTS[tipo]
 
     pecas = await _buscar_pecas(processo_id, documento_ids=documento_ids)
@@ -253,97 +400,153 @@ async def gerar_analise(
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
 
     total_tokens = sum(_contar_tokens(p.get("conteudo_texto") or "") for p in pecas)
-    logger.info(f"Processo {processo_id}: {len(pecas)} peças, ~{total_tokens:,} tokens")
-
-    if total_tokens <= MAX_TOKENS_DIRECT:
-        contexto = _montar_contexto_direto(pecas)
-        estrategia = "direto"
-    else:
-        logger.info("Processo grande — sumarização hierárquica")
-        contexto = await _montar_contexto_hierarquico(pecas, client)
-        estrategia = "hierarquico"
-
-    user_content = f"DOCUMENTOS DO PROCESSO:\n\n{contexto}"
-    if contexto_extra:
-        user_content += f"\n\nINSTRUÇÕES ADICIONAIS:\n{contexto_extra}"
-    user_content += f"\n\nTAREFA:\n{cfg['instrucao']}"
-
-    logger.info(f"Gerando análise '{tipo}' via {estrategia}")
-    msg = await _claude_async(
-        client,
-        model=settings.llm_model,
-        max_tokens=4096,
-        system=SYSTEM_BASE,
-        messages=[{"role": "user", "content": user_content}],
+    logger.info(
+        f"Processo {processo_id}: {len(pecas)} peça(s), ~{total_tokens:,} tokens — "
+        f"tipo '{tipo}'"
     )
 
-    raw = msg.content[0].text.strip()
-    if raw.startswith("```"):
-        raw = raw.split("\n", 1)[1].rsplit("```", 1)[0]
+    # ── Estratégia de contexto ────────────────────────────────────────────────
+    conteudo_json: dict = {}
+    tokens_input  = 0
+    tokens_output = 0
+    estrategia    = "desconhecida"
 
-    try:
-        conteudo = json.loads(raw)
-    except json.JSONDecodeError:
-        conteudo = {"raw": raw, "parse_error": True}
+    if tipo == "cronologia" and total_tokens > MAX_TOKENS_DIRECT:
+        # Multi-pass: extrai eventos de cada bloco e consolida
+        logger.info("Cronologia: usando multi-pass para documento grande")
+        eventos = await _cronologia_multipass(pecas, client)
+        estrategia = "multipass"
 
-    confianca = float(conteudo.get("confianca", 0.7))
+        # Consolidação final com o modelo principal
+        resumo_eventos = json.dumps({"eventos": eventos[:300]}, ensure_ascii=False, indent=2)
+        consolidar_prompt = (
+            f"Abaixo estão eventos cronológicos extraídos de um processo judicial por blocos.\n"
+            f"Organize-os em ordem cronológica, corrija duplicatas e classifique a relevância.\n\n"
+            f"{resumo_eventos}\n\n"
+            f"Retorne o JSON final com o schema:\n{cfg['instrucao']}"
+        )
+        msg_final = await _claude_async(
+            client,
+            model=settings.llm_model,
+            max_tokens=4096,
+            system=SYSTEM_BASE,
+            messages=[{"role": "user", "content": consolidar_prompt}],
+        )
+        tokens_input  = msg_final.usage.input_tokens
+        tokens_output = msg_final.usage.output_tokens
+        raw = msg_final.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1].rsplit("```", 1)[0]
+        try:
+            conteudo_json = json.loads(raw)
+        except json.JSONDecodeError:
+            # Se consolidação falhar, usa os eventos brutos
+            conteudo_json = {"eventos": eventos, "confianca": 0.7}
 
+    else:
+        # Fluxo normal: direto ou hierárquico
+        if total_tokens <= MAX_TOKENS_DIRECT:
+            contexto   = _montar_contexto_direto(pecas)
+            estrategia = "direto"
+        else:
+            logger.info("Documento grande — sumarização hierárquica")
+            contexto   = await _montar_contexto_hierarquico(pecas, client)
+            estrategia = "hierarquico"
+
+        user_content  = f"DOCUMENTOS DO PROCESSO:\n\n{contexto}"
+        if contexto_extra:
+            user_content += f"\n\nINSTRUÇÕES ADICIONAIS:\n{contexto_extra}"
+        user_content += f"\n\nTAREFA:\n{cfg['instrucao']}"
+
+        logger.info(f"Gerando análise '{tipo}' via {estrategia}")
+        msg = await _claude_async(
+            client,
+            model=settings.llm_model,
+            max_tokens=4096,
+            system=SYSTEM_BASE,
+            messages=[{"role": "user", "content": user_content}],
+        )
+        tokens_input  = msg.usage.input_tokens
+        tokens_output = msg.usage.output_tokens
+        raw = msg.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1].rsplit("```", 1)[0]
+        try:
+            conteudo_json = json.loads(raw)
+        except json.JSONDecodeError:
+            conteudo_json = {"raw": raw, "parse_error": True}
+
+    confianca = float(conteudo_json.get("confianca", 0.7))
+
+    # ── Persiste análise ──────────────────────────────────────────────────────
     analise_data = {
-        "id": str(uuid.uuid4()),
-        "processo_id": str(processo_id),
-        "tipo": tipo,
-        "conteudo_json": conteudo,
-        "modelo_ia": settings.llm_model,
-        "tokens_input": msg.usage.input_tokens,
-        "tokens_output": msg.usage.output_tokens,
-        "confianca": confianca,
+        "id":             str(uuid.uuid4()),
+        "processo_id":    str(processo_id),
+        "tipo":           tipo,
+        "conteudo_json":  conteudo_json,
+        "modelo_ia":      settings.llm_model,
+        "tokens_input":   tokens_input,
+        "tokens_output":  tokens_output,
+        "confianca":      confianca,
         "status_revisao": "pendente",
-        "created_by": str(usuario_id) if usuario_id else None,
+        "created_by":     str(usuario_id) if usuario_id else None,
     }
     analise_r = await sb_run(lambda: sb.table("analises").insert(analise_data).execute())
-    analise = analise_r.data[0]
+    analise   = analise_r.data[0]
 
-    if tipo == "cronologia" and "eventos" in conteudo:
+    # ── Popula tabela de cronologia ───────────────────────────────────────────
+    if tipo == "cronologia" and "eventos" in conteudo_json:
         cron_rows = []
-        for ev in conteudo["eventos"]:
-            data = None
+        for ev in conteudo_json["eventos"]:
+            data_val = None
             if ev.get("data"):
                 try:
-                    data = ev["data"]
-                    date_type.fromisoformat(data)
+                    data_val = ev["data"]
+                    date_type.fromisoformat(data_val)
                 except ValueError:
-                    data = None
+                    data_val = None
             cron_rows.append({
-                "id": str(uuid.uuid4()),
-                "processo_id": str(processo_id),
-                "data_evento": data,
+                "id":             str(uuid.uuid4()),
+                "processo_id":    str(processo_id),
+                "data_evento":    data_val,
                 "data_aproximada": ev.get("data_aproximada", False),
-                "tipo_evento": ev.get("tipo", "outros"),
-                "descricao": ev.get("descricao", ""),
-                "relevancia": ev.get("relevancia", "media"),
-                "fonte": "ia",
-                "validado": False,
+                "tipo_evento":    ev.get("tipo", "outro"),
+                "descricao":      ev.get("descricao", ""),
+                "relevancia":     ev.get("relevancia", "media"),
+                "fonte":          "ia",
+                "validado":       False,
             })
         if cron_rows:
-            await sb_run(lambda: sb.table("cronologia").insert(cron_rows).execute())
+            LOTE = 50
+            for i in range(0, len(cron_rows), LOTE):
+                lote = cron_rows[i:i + LOTE]
+                await sb_run(lambda: sb.table("cronologia").insert(lote).execute())
+            logger.success(f"Cronologia: {len(cron_rows)} eventos salvos")
 
+    # ── Cria tarefa de revisão ────────────────────────────────────────────────
     tarefa_data = {
-        "id": str(uuid.uuid4()),
-        "processo_id": str(processo_id),
-        "analise_id": analise["id"],
-        "tipo": "analise",
-        "titulo": f"Revisar análise: {tipo.replace('_', ' ').title()}",
-        "descricao": f"Análise gerada por IA com confiança {confianca:.0%}. Revisão obrigatória.",
-        "prioridade": "alta" if confianca < 0.7 else "normal",
-        "status": "pendente",
+        "id":           str(uuid.uuid4()),
+        "processo_id":  str(processo_id),
+        "analise_id":   analise["id"],
+        "tipo":         "analise",
+        "titulo":       f"Revisar análise: {tipo.replace('_', ' ').title()}",
+        "descricao":    f"Análise gerada por IA (estratégia={estrategia}) com confiança {confianca:.0%}. Revisão obrigatória.",
+        "prioridade":   "alta" if confianca < 0.7 else "normal",
+        "status":       "pendente",
         "atribuido_para": str(usuario_id) if usuario_id else None,
-        "atribuido_por": str(usuario_id) if usuario_id else None,
+        "atribuido_por":  str(usuario_id) if usuario_id else None,
     }
     await sb_run(lambda: sb.table("tarefas_revisao").insert(tarefa_data).execute())
 
-    logger.success(f"Análise '{tipo}' ({estrategia}) — confiança {confianca:.0%}")
+    logger.success(
+        f"Análise '{tipo}' ({estrategia}) — "
+        f"confiança {confianca:.0%} — "
+        f"{tokens_input + tokens_output:,} tokens"
+    )
     return analise
 
+
+# ── Chat ──────────────────────────────────────────────────────────────────────
 
 async def chat_processo(
     processo_id: uuid.UUID,
@@ -363,8 +566,8 @@ async def chat_processo(
     else:
         contexto = await _montar_contexto_hierarquico(pecas, client)
 
-    system = SYSTEM_BASE + f"\n\nCONTEXTO DO PROCESSO:\n\n{contexto}"
-    ultima = mensagens[-1]["content"] if mensagens else ""
+    system  = SYSTEM_BASE + f"\n\nCONTEXTO DO PROCESSO:\n\n{contexto}"
+    ultima  = mensagens[-1]["content"] if mensagens else ""
 
     msg = await _claude_async(
         client,
