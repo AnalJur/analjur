@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useSidebar } from "./SidebarContext";
 
@@ -59,7 +58,8 @@ export default function Sidebar() {
         {/* Logo */}
         <div className="px-5 py-5 border-b border-white/10">
           <Link href="/dashboard" className="flex items-center gap-3" onClick={close}>
-            <Image
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
               src="/logo-icon.svg"
               alt="AnalJur"
               width={36}
