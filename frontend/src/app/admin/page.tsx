@@ -45,7 +45,7 @@ export default function AdminPage() {
   return (
     <div className="flex min-h-screen bg-bg">
       <Sidebar />
-      <div className="flex-1 ml-60 flex flex-col">
+      <div className="flex-1 sm:ml-60 flex flex-col">
         <TopBar title="Operações" subtitle="Dashboard operacional e fila de jobs" />
         <main className="flex-1 p-8 space-y-8">
           {/* Métricas */}

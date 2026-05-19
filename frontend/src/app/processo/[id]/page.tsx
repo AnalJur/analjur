@@ -1409,7 +1409,7 @@ export default function ProcessoPage() {
   if (loading) return (
     <div className="flex min-h-screen bg-bg">
       <Sidebar />
-      <div className="flex-1 ml-60 flex items-center justify-center"><Spinner /></div>
+      <div className="flex-1 sm:ml-60 flex items-center justify-center"><Spinner /></div>
     </div>
   );
   if (!processo) return null;
@@ -1417,7 +1417,7 @@ export default function ProcessoPage() {
   return (
     <div className="flex min-h-screen bg-bg">
       <Sidebar />
-      <div className="flex-1 ml-60 flex flex-col">
+      <div className="flex-1 sm:ml-60 flex flex-col">
         <TopBar
           title={processo.numero_cnj ?? processo.id.slice(0, 8) + "…"}
           subtitle={[processo.tribunal, processo.vara, processo.assunto].filter(Boolean).join(" · ") || "Processo Jurídico"}

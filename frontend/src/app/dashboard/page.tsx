@@ -187,7 +187,7 @@ export default function DashboardPage() {
   return (
     <div className="flex min-h-screen bg-bg">
       <Sidebar />
-      <div className="flex-1 ml-60 flex flex-col">
+      <div className="flex-1 sm:ml-60 flex flex-col">
         <TopBar title="Dashboard" subtitle="Visão geral dos processos" />
 
         <main className="flex-1 p-8 space-y-8">

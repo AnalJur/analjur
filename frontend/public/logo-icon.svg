@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" fill="none">
+  <!-- Background -->
+  <rect width="40" height="40" rx="9" fill="#0F1F3D"/>
+  <!-- Central pillar -->
+  <rect x="19" y="7" width="2" height="22" rx="1" fill="#C9A227"/>
+  <!-- Crossbar -->
+  <rect x="7" y="11" width="26" height="2" rx="1" fill="#C9A227"/>
+  <!-- Base platform -->
+  <rect x="12" y="29" width="16" height="2.5" rx="1.25" fill="#C9A227"/>
+  <!-- Base feet -->
+  <rect x="10" y="31" width="5" height="1.5" rx="0.75" fill="#C9A227"/>
+  <rect x="25" y="31" width="5" height="1.5" rx="0.75" fill="#C9A227"/>
+  <!-- Left chain -->
+  <line x1="8" y1="13" x2="8" y2="19" stroke="#C9A227" stroke-width="1.5" stroke-linecap="round"/>
+  <!-- Left pan (arc) -->
+  <path d="M4.5 19 Q8 24 11.5 19" stroke="#C9A227" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+  <!-- Right chain -->
+  <line x1="32" y1="13" x2="32" y2="19" stroke="#C9A227" stroke-width="1.5" stroke-linecap="round"/>
+  <!-- Right pan (arc) -->
+  <path d="M28.5 19 Q32 24 35.5 19" stroke="#C9A227" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+  <!-- Top pivot dot -->
+  <circle cx="20" cy="11" r="1.5" fill="#C9A227"/>
+</svg>

@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { getUser, clearAuth } from "@/lib/auth";
+import { useSidebar } from "@/components/SidebarContext";
 
 interface TopBarProps {
   title: string;
@@ -11,6 +12,7 @@ interface TopBarProps {
 
 export default function TopBar({ title, subtitle }: TopBarProps) {
   const router = useRouter();
+  const { toggle: toggleSidebar } = useSidebar();
   const [userEmail, setUserEmail] = useState<string>("");
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -47,9 +49,21 @@ export default function TopBar({ title, subtitle }: TopBarProps) {
   return (
     <header className="sticky top-0 z-30 bg-surface shadow-sm border-b border-border">
       <div className="flex items-center justify-between px-8 py-4">
-        <div>
-          <h1 className="text-lg font-semibold text-text-main">{title}</h1>
-          {subtitle && <p className="text-sm text-muted mt-0.5">{subtitle}</p>}
+        <div className="flex items-center gap-3">
+          {/* Hamburguer — só mobile */}
+          <button
+            onClick={toggleSidebar}
+            className="sm:hidden p-2 rounded-lg text-muted hover:text-text-main hover:bg-bg transition-colors"
+            aria-label="Abrir menu"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+            </svg>
+          </button>
+          <div>
+            <h1 className="text-base sm:text-lg font-semibold text-text-main leading-tight">{title}</h1>
+            {subtitle && <p className="text-xs sm:text-sm text-muted mt-0.5 hidden sm:block">{subtitle}</p>}
+          </div>
         </div>
 
         <div className="relative" ref={menuRef}>
