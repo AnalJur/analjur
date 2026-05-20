@@ -1,11 +1,13 @@
 import uuid
+import json as _json
 from typing import Optional
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
 
 from ..database import get_supabase, sb_run
 from ..schemas import AnaliseSolicitacao, AnaliseOut, ChatRequest, ChatResponse
-from ..services.analise_ia import gerar_analise, chat_processo
+from ..services.analise_ia import gerar_analise, gerar_analise_stream, chat_processo
 from ..services import audit_svc
 from ..config import get_settings
 
@@ -44,6 +46,41 @@ async def solicitar_analise(processo_id: uuid.UUID, body: AnaliseSolicitacao):
     await audit_svc.registrar("criar", "analise", analise["id"],
                                dados_depois={"tipo": body.tipo}, usuario_id=DEFAULT_USER)
     return analise
+
+
+@router.post("/stream")
+async def solicitar_analise_stream(processo_id: uuid.UUID, body: AnaliseSolicitacao):
+    """Gera análise e envia progresso via Server-Sent Events (text/event-stream)."""
+
+    async def generate():
+        try:
+            async for evento in gerar_analise_stream(
+                processo_id, body.tipo,
+                usuario_id=DEFAULT_USER,
+                contexto_extra=body.contexto_extra,
+                documento_ids=body.documento_ids or None,
+            ):
+                if evento.get("type") == "done":
+                    await audit_svc.registrar(
+                        "criar", "analise", evento["analise"]["id"],
+                        dados_depois={"tipo": body.tipo},
+                        usuario_id=DEFAULT_USER,
+                    )
+                line = f"data: {_json.dumps(evento, ensure_ascii=False)}\n\n"
+                yield line.encode("utf-8")
+        except Exception as exc:
+            err = _json.dumps({"type": "error", "msg": str(exc)}, ensure_ascii=False)
+            yield f"data: {err}\n\n".encode("utf-8")
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 @router.get("/{analise_id}", response_model=AnaliseOut)

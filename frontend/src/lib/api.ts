@@ -145,6 +145,44 @@ export interface DashboardAdmin {
   analises_pendentes_revisao: number;
 }
 
+// ── Preços Claude API (USD por 1K tokens) ────────────────────────────────
+// Fonte: https://www.anthropic.com/pricing  (mai/2025)
+
+const _PRECOS: Record<string, { input: number; output: number }> = {
+  "claude-sonnet-4-20250514":    { input: 0.003,    output: 0.015   },
+  "claude-3-5-sonnet-20241022":  { input: 0.003,    output: 0.015   },
+  "claude-3-sonnet-20240229":    { input: 0.003,    output: 0.015   },
+  "claude-haiku-4-5-20251001":   { input: 0.00025,  output: 0.00125 },
+  "claude-3-haiku-20240307":     { input: 0.00025,  output: 0.00125 },
+  "claude-3-5-haiku-20241022":   { input: 0.0008,   output: 0.004   },
+};
+const _PRECO_DEFAULT = { input: 0.003, output: 0.015 };
+
+// USD → BRL (taxa aproximada; atualize conforme necessário)
+const USD_TO_BRL = 5.05;
+
+export function calcCustoAnalise(modelo: string, tokensInput: number, tokensOutput: number): {
+  usd: number; brl: number; label: string;
+} {
+  const p = _PRECOS[modelo] ?? _PRECO_DEFAULT;
+  const usd = (tokensInput / 1000) * p.input + (tokensOutput / 1000) * p.output;
+  const brl = usd * USD_TO_BRL;
+  const label = brl < 0.01
+    ? "< R$ 0,01"
+    : `R$ ${brl.toFixed(2).replace(".", ",")}`;
+  return { usd, brl, label };
+}
+
+export function calcCustoTotal(analises: Analise[]): { usd: number; brl: number; label: string } {
+  const total = analises.reduce((acc, a) => {
+    const c = calcCustoAnalise(a.modelo_ia, a.tokens_input ?? 0, a.tokens_output ?? 0);
+    return acc + c.usd;
+  }, 0);
+  const brl = total * USD_TO_BRL;
+  const label = brl < 0.01 ? "< R$ 0,01" : `R$ ${brl.toFixed(2).replace(".", ",")}`;
+  return { usd: total, brl, label };
+}
+
 // ── API client ────────────────────────────────────────────────────────────
 
 export const api = {
@@ -244,6 +282,18 @@ export const api = {
       }),
     deletar: (processoId: string, analiseId: string) =>
       req<void>(`/processos/${processoId}/analises/${analiseId}`, { method: "DELETE" }),
+    stream: (
+      processoId: string,
+      tipo: string,
+      contextoExtra?: string,
+      documentoIds?: string[],
+    ): Promise<Response> =>
+      fetch(`${BASE}/processos/${processoId}/analises/stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAuthHeader() },
+        body: JSON.stringify({ tipo, contexto_extra: contextoExtra ?? null, documento_ids: documentoIds ?? null }),
+      }),
+
     chat: (
       processoId: string,
       mensagens: { role: string; content: string }[],

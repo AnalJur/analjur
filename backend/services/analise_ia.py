@@ -1017,6 +1017,138 @@ async def gerar_analise(
     return analise
 
 
+# ── Streaming de análise (SSE) ────────────────────────────────────────────────
+
+_PASSOS_STREAM: dict[str, list[tuple[str, int]]] = {
+    "cronologia": [
+        ("Carregando peças do processo…",          5),
+        ("Extraindo atos da petição inicial…",     12),
+        ("Processando despachos e decisões…",      25),
+        ("Analisando recursos e acórdãos…",        40),
+        ("Processando sentenças e acordos…",       55),
+        ("Identificando embargos e agravos…",      68),
+        ("Consolidando ordem cronológica…",         80),
+        ("Validando lógica processual…",           88),
+        ("Salvando eventos…",                      93),
+    ],
+    "diagnostico_completo": [
+        ("Carregando peças do processo…",          5),
+        ("Montando contexto do processo…",         15),
+        ("Identificando partes e fase processual…", 28),
+        ("Detectando falhas e oportunidades…",     42),
+        ("Mapeando teses jurídicas…",              56),
+        ("Avaliando riscos e estratégias…",        70),
+        ("Elaborando plano de ação…",              83),
+        ("Finalizando análise…",                   90),
+    ],
+    "estado_atual": [
+        ("Carregando peças…",                      10),
+        ("Identificando fase processual…",         30),
+        ("Mapeando partes e pedidos…",             55),
+        ("Calculando prazos…",                     75),
+        ("Salvando…",                              90),
+    ],
+    "resumo_executivo": [
+        ("Carregando peças…",                      10),
+        ("Analisando fatos determinantes…",        35),
+        ("Avaliando chances de êxito…",            60),
+        ("Elaborando ações prioritárias…",         80),
+        ("Salvando…",                              90),
+    ],
+    "riscos": [
+        ("Carregando peças…",                      10),
+        ("Identificando riscos processuais…",      32),
+        ("Avaliando riscos materiais…",            55),
+        ("Calculando exposição financeira…",       75),
+        ("Salvando…",                              90),
+    ],
+    "teses": [
+        ("Carregando peças…",                      10),
+        ("Mapeando teses do autor…",               30),
+        ("Mapeando teses do réu…",                 50),
+        ("Identificando teses não levantadas…",    72),
+        ("Salvando…",                              90),
+    ],
+    "proximos_passos": [
+        ("Carregando peças…",                      10),
+        ("Identificando ações necessárias…",       35),
+        ("Calculando prazos legais…",              60),
+        ("Avaliando oportunidade de acordo…",      80),
+        ("Salvando…",                              90),
+    ],
+    "estrategia": [
+        ("Carregando peças…",                      10),
+        ("Avaliando posição do cliente…",          28),
+        ("Elaborando estratégias alternativas…",   50),
+        ("Definindo recomendação principal…",      72),
+        ("Salvando…",                              90),
+    ],
+}
+
+_PASSOS_DEFAULT = [
+    ("Carregando peças…",          10),
+    ("Montando contexto…",         30),
+    ("Gerando análise com IA…",    55),
+    ("Processando resposta…",      78),
+    ("Salvando…",                  90),
+]
+
+
+async def gerar_analise_stream(
+    processo_id: uuid.UUID,
+    tipo: str,
+    usuario_id: Optional[uuid.UUID] = None,
+    contexto_extra: Optional[str] = None,
+    documento_ids: Optional[list[uuid.UUID]] = None,
+):
+    """
+    Async generator — roda gerar_analise() em paralelo e emite eventos de progresso.
+
+    Yield dicts:
+      {"type": "progress", "msg": str, "pct": int}
+      {"type": "done",     "pct": 100, "analise": dict}
+      {"type": "error",    "msg": str}
+    """
+    import asyncio
+
+    passos = _PASSOS_STREAM.get(tipo, _PASSOS_DEFAULT)
+    intervalo_seg = 6  # segundos entre atualizações de passo
+
+    # Inicia a análise como tarefa concorrente
+    loop = asyncio.get_event_loop()
+    task = loop.create_task(
+        gerar_analise(
+            processo_id, tipo,
+            usuario_id=usuario_id,
+            contexto_extra=contexto_extra,
+            documento_ids=documento_ids,
+        )
+    )
+
+    passo_idx = 0
+    while not task.done():
+        if passo_idx < len(passos):
+            msg, pct = passos[passo_idx]
+        else:
+            # Mantém no último passo até terminar
+            msg, pct = passos[-1]
+        yield {"type": "progress", "msg": msg, "pct": pct}
+        passo_idx += 1
+
+        # Espera o intervalo (1 s por ciclo para checar se a task terminou)
+        for _ in range(intervalo_seg):
+            if task.done():
+                break
+            await asyncio.sleep(1)
+
+    exc = task.exception()
+    if exc:
+        yield {"type": "error", "msg": str(exc)}
+    else:
+        analise = task.result()
+        yield {"type": "done", "pct": 100, "analise": analise}
+
+
 # ── Chat (versão rápida) ───────────────────────────────────────────────────────
 #
 # Estratégia: contexto inteligente truncado → Haiku → resposta em segundos.

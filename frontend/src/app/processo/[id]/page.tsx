@@ -5,7 +5,8 @@ import { useParams, useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import TopBar from "@/components/TopBar";
 import {
-  api, type Processo, type Documento, type EventoCronologia,
+  api, calcCustoAnalise, calcCustoTotal,
+  type Processo, type Documento, type EventoCronologia,
   type Analise, type TarefaRevisao, type Minuta, type Snapshot, type Peca,
 } from "@/lib/api";
 
@@ -20,6 +21,97 @@ function fmtDataHora(s?: string | null) {
   if (!s) return "—";
   const d = new Date(s);
   return d.toLocaleDateString("pt-BR") + " " + d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+
+// ── Export helpers ────────────────────────────────────────────────────────
+
+function jsonToHtmlReport(
+  titulo: string,
+  subtitulo: string,
+  conteudo: Record<string, unknown>,
+  processo?: Processo | null,
+): string {
+  const renderVal = (v: unknown, depth = 0): string => {
+    if (v === null || v === undefined) return "<em>—</em>";
+    if (typeof v === "boolean") return v ? "Sim" : "Não";
+    if (typeof v === "number") return String(v);
+    if (typeof v === "string") return v.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\n/g,"<br>");
+    if (Array.isArray(v)) {
+      if (!v.length) return "<em>Nenhum</em>";
+      if (typeof v[0] === "string")
+        return `<ul>${v.map((s: unknown) => `<li>${renderVal(s, depth+1)}</li>`).join("")}</ul>`;
+      return v.map((item) => `<div class="sub">${renderVal(item, depth+1)}</div>`).join("");
+    }
+    if (typeof v === "object") {
+      return Object.entries(v as Record<string,unknown>).map(([k, val]) =>
+        `<div class="row"><span class="key">${k.replace(/_/g," ").toUpperCase()}</span> ${renderVal(val, depth+1)}</div>`
+      ).join("");
+    }
+    return String(v);
+  };
+
+  const processoInfo = processo
+    ? `<p class="meta">${[processo.numero_cnj, processo.tribunal, processo.vara].filter(Boolean).join(" | ")}</p>`
+    : "";
+
+  return `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>${titulo}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Times New Roman', serif; font-size: 12pt; color: #1a1a1a; padding: 2cm; }
+  h1 { font-size: 16pt; margin-bottom: 4px; }
+  h2 { font-size: 13pt; border-bottom: 1px solid #999; padding-bottom: 4px; margin: 18px 0 8px; color: #2c2c2c; }
+  .meta { font-size: 10pt; color: #666; margin-bottom: 16px; }
+  .header { border-bottom: 2px solid #1a1a1a; padding-bottom: 12px; margin-bottom: 20px; }
+  .aviso { background: #fff8e1; border-left: 3px solid #f0a500; padding: 8px 12px; font-size: 10pt; margin-bottom: 16px; }
+  .row { margin: 4px 0 6px; }
+  .key { font-weight: bold; font-size: 10pt; color: #555; text-transform: uppercase; letter-spacing: 0.5px; display: block; }
+  .sub { border-left: 3px solid #ddd; margin: 6px 0; padding-left: 10px; }
+  ul { margin: 4px 0 4px 16px; }
+  li { margin-bottom: 3px; }
+  em { color: #aaa; font-style: italic; }
+  @media print {
+    body { padding: 1.5cm; }
+    .no-print { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>${titulo}</h1>
+  ${processoInfo}
+  <p class="meta">Gerado em ${new Date().toLocaleDateString("pt-BR")} ${new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})} · ${subtitulo}</p>
+</div>
+<div class="aviso">⚠ Análise gerada por IA — requer validação do advogado responsável antes de qualquer utilização.</div>
+<div>${renderVal(conteudo)}</div>
+</body>
+</html>`;
+}
+
+function exportarPDF(titulo: string, html: string) {
+  const w = window.open("", "_blank");
+  if (!w) { alert("Permita popups para exportar PDF."); return; }
+  w.document.write(html);
+  w.document.close();
+  setTimeout(() => w.print(), 400);
+}
+
+function exportarWord(titulo: string, html: string) {
+  const blob = new Blob([
+    `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="UTF-8"><title>${titulo}</title>
+<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]-->
+</head><body>${html}</body></html>`
+  ], { type: "application/msword" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${titulo.replace(/[^a-zA-Z0-9À-ú ]/g, "").slice(0, 60)}.doc`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function formatBytes(b?: number) {
@@ -419,26 +511,49 @@ function AbaCronologia({ processoId }: { processoId: string }) {
     setPassoCron(0);
     setProgresso(0);
 
-    // Animação de progresso enquanto a API trabalha
-    const intervalo = setInterval(() => {
-      setPassoCron(prev => {
-        const prox = prev < PASSOS_CRON.length - 1 ? prev + 1 : prev;
-        setProgresso(Math.round((prox / (PASSOS_CRON.length - 1)) * 90)); // vai até 90%
-        return prox;
-      });
-    }, 4500); // avança um passo a cada ~4,5s
-
     try {
-      await api.analises.solicitar(processoId, "cronologia");
-      clearInterval(intervalo);
-      setProgresso(100);
-      setPassoCron(PASSOS_CRON.length - 1);
-      // Recarrega eventos após geração
-      await new Promise(r => setTimeout(r, 800));
-      const evs = await api.cronologia.listar(processoId);
-      setEventos(evs);
+      const resp = await api.analises.stream(processoId, "cronologia");
+      if (!resp.body) throw new Error("Stream indisponível");
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+
+        // SSE: chunks delimitados por "\n\n"
+        const chunks = buf.split("\n\n");
+        buf = chunks.pop() ?? "";
+
+        for (const chunk of chunks) {
+          const line = chunk.trim();
+          if (!line.startsWith("data:")) continue;
+          try {
+            const ev = JSON.parse(line.slice(5).trim());
+            if (ev.type === "progress") {
+              setProgresso(ev.pct ?? 0);
+              // Mapeia a mensagem do servidor para o índice mais próximo no PASSOS_CRON
+              const idx = PASSOS_CRON.findIndex(p => p === ev.msg);
+              setPassoCron(idx >= 0 ? idx : Math.round((ev.pct / 100) * (PASSOS_CRON.length - 1)));
+            } else if (ev.type === "done") {
+              setProgresso(100);
+              setPassoCron(PASSOS_CRON.length - 1);
+              await new Promise(r => setTimeout(r, 800));
+              const evs = await api.cronologia.listar(processoId);
+              setEventos(evs);
+            } else if (ev.type === "error") {
+              throw new Error(ev.msg ?? "Erro ao gerar cronologia");
+            }
+          } catch (parseErr) {
+            // Ignora chunks malformados
+          }
+        }
+      }
     } catch (e) {
-      clearInterval(intervalo);
       alert(e instanceof Error ? e.message : "Erro ao gerar cronologia");
     } finally {
       setGerandoCron(false);
@@ -641,12 +756,13 @@ const TIPOS_ANALISE = [
   { id: "estrategia",          label: "Estratégia" },
 ];
 
-function ModalAnalise({ analise, processoId, onUpdate, onClose, onDelete }: {
-  analise: Analise; processoId: string;
+function ModalAnalise({ analise, processoId, processo, onUpdate, onClose, onDelete }: {
+  analise: Analise; processoId: string; processo?: Processo | null;
   onUpdate: (a: Analise) => void; onClose: () => void;
   onDelete: (id: string) => void;
 }) {
   const [loading, setLoading] = useState<"aprovar" | "rejeitar" | "excluir" | null>(null);
+  const [exportMenu, setExportMenu] = useState(false);
 
   async function aprovar() {
     setLoading("aprovar");
@@ -695,8 +811,11 @@ function ModalAnalise({ analise, processoId, onUpdate, onClose, onDelete }: {
           {analise.confianca !== undefined && (
             <span className="text-xs text-muted">confiança {Math.round(analise.confianca * 100)}%</span>
           )}
-          <span className="text-xs text-muted">{fmtData(analise.created_at)}</span>
+          <span className="text-xs text-muted">{fmtDataHora(analise.created_at)}</span>
           <span className="text-xs text-muted">{analise.tokens_input}+{analise.tokens_output} tokens</span>
+          <span className="text-xs font-semibold text-green-700">
+            {calcCustoAnalise(analise.modelo_ia, analise.tokens_input ?? 0, analise.tokens_output ?? 0).label}
+          </span>
         </div>
 
         {/* Conteúdo formatado */}
@@ -722,11 +841,42 @@ function ModalAnalise({ analise, processoId, onUpdate, onClose, onDelete }: {
         {analise.status_revisao === "aprovada" && (
           <p className="text-xs text-green-600 text-right">✓ Aprovada em {fmtData(analise.revisado_at)}</p>
         )}
-        {/* Excluir sempre disponível */}
-        <div className="flex justify-start pt-2 border-t border-border">
+        {/* Barra inferior: excluir + exportar */}
+        <div className="flex items-center justify-between pt-2 border-t border-border gap-2">
           <Btn variant="danger" onClick={excluir} disabled={!!loading}>
-            {loading === "excluir" ? "Excluindo…" : "🗑 Excluir análise"}
+            {loading === "excluir" ? "Excluindo…" : "🗑 Excluir"}
           </Btn>
+          <div className="relative">
+            <button
+              onClick={() => setExportMenu(v => !v)}
+              className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-border hover:border-gold hover:text-gold transition-all flex items-center gap-1"
+            >
+              ↓ Exportar
+            </button>
+            {exportMenu && (
+              <div className="absolute right-0 bottom-9 bg-surface border border-border rounded-xl shadow-xl z-50 overflow-hidden min-w-[150px]"
+                   onMouseLeave={() => setExportMenu(false)}>
+                <button className="w-full text-left text-xs px-4 py-3 hover:bg-bg transition-colors"
+                  onClick={() => {
+                    const titulo = TIPOS_ANALISE.find(t => t.id === analise.tipo)?.label ?? analise.tipo;
+                    const sub = `${analise.modelo_ia} · confiança ${Math.round((analise.confianca ?? 0)*100)}%`;
+                    exportarPDF(titulo, jsonToHtmlReport(titulo, sub, analise.conteudo_json, processo));
+                    setExportMenu(false);
+                  }}>
+                  🖨 PDF (imprimir)
+                </button>
+                <button className="w-full text-left text-xs px-4 py-3 hover:bg-bg transition-colors"
+                  onClick={() => {
+                    const titulo = TIPOS_ANALISE.find(t => t.id === analise.tipo)?.label ?? analise.tipo;
+                    const sub = `${analise.modelo_ia} · confiança ${Math.round((analise.confianca ?? 0)*100)}%`;
+                    exportarWord(titulo, jsonToHtmlReport(titulo, sub, analise.conteudo_json, processo));
+                    setExportMenu(false);
+                  }}>
+                  📄 Word (.doc)
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </Modal>
@@ -1044,11 +1194,13 @@ function AnaliseConteudo({ conteudo }: { conteudo: Record<string, unknown> }) {
   return <div className="text-sm">{renderValue(conteudo)}</div>;
 }
 
-function AbaAnalises({ processoId, onRefreshProcesso }: { processoId: string; onRefreshProcesso: () => void }) {
+function AbaAnalises({ processoId, processo, onRefreshProcesso }: { processoId: string; processo?: Processo | null; onRefreshProcesso: () => void }) {
   const [analises, setAnalises] = useState<Analise[]>([]);
   const [docs, setDocs] = useState<Documento[]>([]);
   const [loading, setLoading] = useState(true);
   const [gerando, setGerando] = useState<string | null>(null);
+  const [streamMsg, setStreamMsg] = useState<string>("");
+  const [streamPct, setStreamPct] = useState<number>(0);
   const [modalAnalise, setModalAnalise] = useState<Analise | null>(null);
   const [deletandoAnalise, setDeletandoAnalise] = useState<string | null>(null);
   const [docsSelecionados, setDocsSelecionados] = useState<string[]>([]);
@@ -1077,17 +1229,55 @@ function AbaAnalises({ processoId, onRefreshProcesso }: { processoId: string; on
     if (!tipoSelecionado) return;
     setMostrarSeletor(false);
     setGerando(tipoSelecionado);
+    setStreamMsg("Iniciando análise…");
+    setStreamPct(0);
+
+    const docIds = docsSelecionados.length < docs.length ? docsSelecionados : undefined;
+
     try {
-      const a = await api.analises.solicitar(
-        processoId, tipoSelecionado, undefined,
-        docsSelecionados.length < docs.length ? docsSelecionados : undefined
-      );
-      setAnalises(prev => [a, ...prev]);
+      const resp = await api.analises.stream(processoId, tipoSelecionado, undefined, docIds);
+      if (!resp.body) throw new Error("Stream indisponível");
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+
+        const chunks = buf.split("\n\n");
+        buf = chunks.pop() ?? "";
+
+        for (const chunk of chunks) {
+          const line = chunk.trim();
+          if (!line.startsWith("data:")) continue;
+          try {
+            const ev = JSON.parse(line.slice(5).trim());
+            if (ev.type === "progress") {
+              setStreamMsg(ev.msg ?? "");
+              setStreamPct(ev.pct ?? 0);
+            } else if (ev.type === "done") {
+              setStreamPct(100);
+              setStreamMsg("Análise concluída!");
+              setAnalises(prev => [ev.analise as Analise, ...prev]);
+            } else if (ev.type === "error") {
+              throw new Error(ev.msg ?? "Erro ao gerar análise");
+            }
+          } catch {
+            // Ignora chunks malformados
+          }
+        }
+      }
     } catch (e) {
       alert(e instanceof Error ? e.message : "Erro ao gerar análise");
     } finally {
       setGerando(null);
       setTipoSelecionado(null);
+      setStreamMsg("");
+      setStreamPct(0);
     }
   }
 
@@ -1135,57 +1325,83 @@ function AbaAnalises({ processoId, onRefreshProcesso }: { processoId: string; on
     <>
       <div className="space-y-6">
         {/* Painel gerar análise */}
-        <div className="bg-gray-50 rounded-xl border border-border p-5 space-y-4">
-          <div>
-            <h3 className="text-sm font-bold text-text-main mb-1">Gerar nova análise</h3>
-            <p className="text-xs text-muted">
-              Clique no tipo desejado. Você poderá escolher quais documentos usar antes de confirmar.
-            </p>
-          </div>
-
-          {/* Diagnóstico Completo — destaque */}
-          {(() => {
-            const dc = TIPOS_ANALISE.find(t => t.premium);
-            if (!dc) return null;
-            return (
-              <button onClick={() => iniciarGeracao(dc.id)} disabled={!!gerando}
-                className={`w-full flex items-start gap-4 p-4 rounded-xl border-2 text-left transition-all disabled:opacity-50 disabled:cursor-not-allowed
-                  ${gerando === dc.id
-                    ? "border-gold bg-gold/10"
-                    : "border-gold/60 bg-gradient-to-r from-gold/5 to-transparent hover:border-gold hover:from-gold/10"}`}>
-                <div className="text-2xl flex-shrink-0">⚖</div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold text-text-main">Diagnóstico Completo</p>
-                  <p className="text-xs text-muted mt-0.5">{dc.descricao}</p>
+        <div className={`rounded-xl border p-5 space-y-4 transition-all ${gerando ? "border-gold bg-gold/5" : "bg-gray-50 border-border"}`}>
+          {gerando ? (
+            /* ── Progresso em tempo real ── */
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Spinner sm />
+                  <p className="text-sm font-bold text-gold">{getLabelAnalise(gerando)}</p>
                 </div>
-                {gerando === dc.id
-                  ? <span className="flex items-center gap-1 text-xs text-gold font-semibold flex-shrink-0"><Spinner sm /> Analisando…</span>
-                  : <span className="text-xs font-semibold text-gold flex-shrink-0">Gerar →</span>
-                }
-              </button>
-            );
-          })()}
-
-          {/* Análises individuais */}
-          <div>
-            <p className="text-xs font-semibold text-muted uppercase tracking-wider mb-2">Análises individuais</p>
-            <div className="flex flex-wrap gap-2">
-              {TIPOS_ANALISE.filter(t => !t.premium).map(t => (
-                <button key={t.id} onClick={() => iniciarGeracao(t.id)} disabled={!!gerando}
-                  className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all disabled:opacity-50 disabled:cursor-not-allowed
-                    ${gerando === t.id ? "border-gold bg-gold/10 text-gold" : "border-border hover:border-gold hover:text-gold hover:bg-gold/5"}`}>
-                  {gerando === t.id ? <span className="flex items-center gap-1"><Spinner sm /> Gerando…</span> : t.label}
-                </button>
-              ))}
+                <span className="text-xs text-muted font-semibold">{streamPct}%</span>
+              </div>
+              <p className="text-xs text-text-main">{streamMsg || "Aguardando…"}</p>
+              <div className="w-full bg-border rounded-full h-2 overflow-hidden">
+                <div
+                  className="h-full bg-gold rounded-full transition-all duration-700"
+                  style={{ width: `${streamPct}%` }}
+                />
+              </div>
+              <p className="text-xs text-muted text-center">
+                A análise pode levar de 30 segundos a alguns minutos dependendo do tamanho do processo.
+              </p>
             </div>
-          </div>
+          ) : (
+            <>
+              <div>
+                <h3 className="text-sm font-bold text-text-main mb-1">Gerar nova análise</h3>
+                <p className="text-xs text-muted">
+                  Clique no tipo desejado. Você poderá escolher quais documentos usar antes de confirmar.
+                </p>
+              </div>
+
+              {/* Diagnóstico Completo — destaque */}
+              {(() => {
+                const dc = TIPOS_ANALISE.find(t => t.premium);
+                if (!dc) return null;
+                return (
+                  <button onClick={() => iniciarGeracao(dc.id)} disabled={!!gerando}
+                    className="w-full flex items-start gap-4 p-4 rounded-xl border-2 text-left transition-all border-gold/60 bg-gradient-to-r from-gold/5 to-transparent hover:border-gold hover:from-gold/10">
+                    <div className="text-2xl flex-shrink-0">⚖</div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-text-main">Diagnóstico Completo</p>
+                      <p className="text-xs text-muted mt-0.5">{dc.descricao}</p>
+                    </div>
+                    <span className="text-xs font-semibold text-gold flex-shrink-0">Gerar →</span>
+                  </button>
+                );
+              })()}
+
+              {/* Análises individuais */}
+              <div>
+                <p className="text-xs font-semibold text-muted uppercase tracking-wider mb-2">Análises individuais</p>
+                <div className="flex flex-wrap gap-2">
+                  {TIPOS_ANALISE.filter(t => !t.premium).map(t => (
+                    <button key={t.id} onClick={() => iniciarGeracao(t.id)} disabled={!!gerando}
+                      className="text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all border-border hover:border-gold hover:text-gold hover:bg-gold/5 disabled:opacity-50 disabled:cursor-not-allowed">
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         {loading && <div className="flex justify-center py-8"><Spinner /></div>}
 
-        {/* Busca */}
+        {/* Custo total + busca */}
         {!loading && analises.length > 0 && (
-          <SearchBar value={busca} onChange={setBusca} placeholder="Buscar análises…" />
+          <div className="flex items-center gap-3">
+            <div className="flex-1">
+              <SearchBar value={busca} onChange={setBusca} placeholder="Buscar análises…" />
+            </div>
+            <div className="text-right flex-shrink-0">
+              <p className="text-xs text-muted">Custo total IA</p>
+              <p className="text-sm font-bold text-green-700">{calcCustoTotal(analises).label}</p>
+            </div>
+          </div>
         )}
 
         {/* Lista de análises */}
@@ -1206,6 +1422,7 @@ function AbaAnalises({ processoId, onRefreshProcesso }: { processoId: string; on
                 </div>
                 <p className="text-xs text-muted mt-0.5">
                   {fmtDataHora(a.created_at)} · {a.modelo_ia} · {(a.tokens_input ?? 0)+(a.tokens_output ?? 0)} tokens
+                  {" · "}<span className="text-green-700 font-semibold">{calcCustoAnalise(a.modelo_ia, a.tokens_input ?? 0, a.tokens_output ?? 0).label}</span>
                 </p>
               </div>
               <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
@@ -1280,6 +1497,7 @@ function AbaAnalises({ processoId, onRefreshProcesso }: { processoId: string; on
         <ModalAnalise
           analise={modalAnalise}
           processoId={processoId}
+          processo={processo}
           onUpdate={upd => {
             setAnalises(prev => prev.map(x => x.id === upd.id ? upd : x));
             setModalAnalise(upd);
@@ -2175,7 +2393,7 @@ function AbaAtividade({ processoId }: { processoId: string }) {
         lista.push({
           tipo: "🤖 Análise IA",
           titulo: label,
-          subtitulo: `${a.modelo_ia} · ${(a.tokens_input ?? 0) + (a.tokens_output ?? 0)} tokens · confiança ${Math.round((a.confianca ?? 0) * 100)}%`,
+          subtitulo: `${a.modelo_ia} · ${(a.tokens_input ?? 0) + (a.tokens_output ?? 0)} tokens · confiança ${Math.round((a.confianca ?? 0) * 100)}% · ${calcCustoAnalise(a.modelo_ia, a.tokens_input ?? 0, a.tokens_output ?? 0).label}`,
           at: a.created_at,
           badge: a.status_revisao,
           badgeCor: a.status_revisao === "aprovada" ? "bg-green-100 text-green-700"
@@ -2555,7 +2773,7 @@ export default function ProcessoPage() {
           {tab === "documentos" && <AbaDocumentos processoId={id} />}
           {tab === "pecas"      && <AbaPecas      processoId={id} />}
           {tab === "cronologia" && <AbaCronologia processoId={id} />}
-          {tab === "analises"   && <AbaAnalises   processoId={id} onRefreshProcesso={carregar} />}
+          {tab === "analises"   && <AbaAnalises   processoId={id} processo={processo} onRefreshProcesso={carregar} />}
           {tab === "revisao"    && <AbaRevisao    processoId={id} onRefreshProcesso={carregar} />}
           {tab === "minutas"    && <AbaMinutas    processoId={id} />}
           {tab === "snapshots"  && <AbaSnapshots  processoId={id} />}
