@@ -7,7 +7,7 @@ import TopBar from "@/components/TopBar";
 import {
   api, calcCustoAnalise, calcCustoTotal,
   type Processo, type Documento, type EventoCronologia,
-  type Analise, type TarefaRevisao, type Minuta, type Snapshot, type Peca,
+  type Analise, type TarefaRevisao, type Minuta, type Snapshot, type Peca, type Prazo,
 } from "@/lib/api";
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -211,6 +211,7 @@ const TABS = [
   { id: "documentos", label: "Documentos" },
   { id: "pecas",      label: "Peças" },
   { id: "cronologia", label: "Cronologia" },
+  { id: "prazos",     label: "⏰ Prazos" },
   { id: "analises",   label: "Análises IA" },
   { id: "revisao",    label: "Revisão" },
   { id: "minutas",    label: "Minutas" },
@@ -2352,6 +2353,598 @@ function diffMin(a: string, b?: string | null) {
   return Math.round((new Date(b).getTime() - new Date(a).getTime()) / 60000);
 }
 
+// ── AbaPrazos ─────────────────────────────────────────────────────────────
+
+type PrazoStatus = "vencido" | "vencendo" | "em_aberto" | "cumprido" | "suspendo" | "cancelado";
+
+function statusEfetivo(prazo: Prazo): PrazoStatus {
+  if (prazo.status === "cumprido" || prazo.status === "suspendo" || prazo.status === "cancelado")
+    return prazo.status as PrazoStatus;
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  const venc = new Date(prazo.vencimento + "T00:00:00");
+  const diff = Math.floor((venc.getTime() - hoje.getTime()) / 86_400_000);
+  if (diff < 0) return "vencido";
+  if (diff <= 5) return "vencendo";
+  return "em_aberto";
+}
+
+function diasRestantes(vencimento: string): number {
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  const venc = new Date(vencimento + "T00:00:00");
+  return Math.floor((venc.getTime() - hoje.getTime()) / 86_400_000);
+}
+
+const STATUS_PRAZO_STYLE: Record<PrazoStatus, { border: string; badge: string; label: string }> = {
+  vencido:    { border: "border-red-400",    badge: "bg-red-100 text-red-700",       label: "Vencido" },
+  vencendo:   { border: "border-amber-400",  badge: "bg-amber-100 text-amber-700",   label: "Vence em breve" },
+  em_aberto:  { border: "border-green-400",  badge: "bg-green-100 text-green-700",   label: "Em aberto" },
+  cumprido:   { border: "border-gray-300",   badge: "bg-gray-100 text-gray-500",     label: "Cumprido" },
+  suspendo:   { border: "border-blue-300",   badge: "bg-blue-100 text-blue-600",     label: "Suspenso" },
+  cancelado:  { border: "border-gray-200",   badge: "bg-gray-50  text-gray-400",     label: "Cancelado" },
+};
+
+const PRIORIDADE_BADGE: Record<string, string> = {
+  critica: "bg-red-100 text-red-700 font-bold",
+  urgente: "bg-orange-100 text-orange-700",
+  alta:    "bg-yellow-100 text-yellow-700",
+  normal:  "bg-gray-100 text-gray-500",
+  baixa:   "bg-gray-50 text-gray-400",
+};
+
+const TIPO_PRAZO_OPTIONS = [
+  { value: "processual",     label: "Processual" },
+  { value: "contratual",     label: "Contratual" },
+  { value: "administrativo", label: "Administrativo" },
+  { value: "prescricao",     label: "Prescrição/Decadência" },
+  { value: "interno",        label: "Interno (escritório)" },
+  { value: "outro",          label: "Outro" },
+];
+
+const PRIORIDADE_OPTIONS = [
+  { value: "critica", label: "🔴 Crítica" },
+  { value: "urgente", label: "🟠 Urgente" },
+  { value: "alta",    label: "🟡 Alta" },
+  { value: "normal",  label: "⚪ Normal" },
+  { value: "baixa",   label: "🔵 Baixa" },
+];
+
+type PrazoForm = {
+  titulo: string;
+  descricao: string;
+  tipo: string;
+  fundamento_legal: string;
+  data_inicio: string;
+  prazo_dias: string;
+  vencimento: string;
+  prioridade: string;
+  responsavel: string;
+  observacoes: string;
+};
+
+const PRAZO_FORM_VAZIO: PrazoForm = {
+  titulo: "", descricao: "", tipo: "processual", fundamento_legal: "",
+  data_inicio: "", prazo_dias: "", vencimento: "", prioridade: "normal",
+  responsavel: "", observacoes: "",
+};
+
+type ImportItem = {
+  key: string;
+  titulo: string;
+  vencimento: string;
+  fundamento: string;
+  urgencia: string;
+  tipo: string;
+  selected: boolean;
+};
+
+function AbaPrazos({ processoId }: { processoId: string }) {
+  const [prazos, setPrazos] = useState<Prazo[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [modal, setModal] = useState<{ form: PrazoForm; id?: string } | null>(null);
+  const [salvando, setSalvando] = useState(false);
+  const [deletando, setDeletando] = useState<string | null>(null);
+  const [cumprindo, setCumprindo] = useState<string | null>(null);
+  const [reabrindo, setReabrindo] = useState<string | null>(null);
+  const [importModal, setImportModal] = useState<ImportItem[] | null>(null);
+  const [importando, setImportando] = useState(false);
+
+  useEffect(() => {
+    api.prazos.listar(processoId).then(setPrazos).finally(() => setLoading(false));
+  }, [processoId]);
+
+  // ── Ordenação: vencido → vencendo → em_aberto → cumprido/suspendo/cancelado ──
+  const sorted = [...prazos].sort((a, b) => {
+    const order: Record<PrazoStatus, number> = {
+      vencido: 0, vencendo: 1, em_aberto: 2, suspendo: 3, cancelado: 4, cumprido: 5,
+    };
+    const sa = statusEfetivo(a), sb = statusEfetivo(b);
+    const oa = order[sa], ob = order[sb];
+    if (oa !== ob) return oa - ob;
+    return new Date(a.vencimento).getTime() - new Date(b.vencimento).getTime();
+  });
+
+  const counts = {
+    vencido:   prazos.filter(p => statusEfetivo(p) === "vencido").length,
+    vencendo:  prazos.filter(p => statusEfetivo(p) === "vencendo").length,
+    em_aberto: prazos.filter(p => statusEfetivo(p) === "em_aberto").length,
+    cumprido:  prazos.filter(p => statusEfetivo(p) === "cumprido").length,
+  };
+
+  function abrirNovo() {
+    setModal({ form: { ...PRAZO_FORM_VAZIO } });
+  }
+  function abrirEditar(p: Prazo) {
+    setModal({
+      id: p.id,
+      form: {
+        titulo: p.titulo, descricao: p.descricao ?? "", tipo: p.tipo,
+        fundamento_legal: p.fundamento_legal ?? "",
+        data_inicio: p.data_inicio ?? "", prazo_dias: p.prazo_dias?.toString() ?? "",
+        vencimento: p.vencimento, prioridade: p.prioridade,
+        responsavel: p.responsavel ?? "", observacoes: p.observacoes ?? "",
+      },
+    });
+  }
+
+  async function salvar() {
+    if (!modal) return;
+    const f = modal.form;
+    if (!f.titulo.trim()) { alert("Título obrigatório"); return; }
+    if (!f.vencimento) { alert("Data de vencimento obrigatória"); return; }
+    setSalvando(true);
+    try {
+      const body = {
+        titulo: f.titulo.trim(),
+        tipo: f.tipo,
+        vencimento: f.vencimento,
+        prioridade: f.prioridade,
+        ...(f.descricao.trim() ? { descricao: f.descricao.trim() } : {}),
+        ...(f.fundamento_legal.trim() ? { fundamento_legal: f.fundamento_legal.trim() } : {}),
+        ...(f.data_inicio ? { data_inicio: f.data_inicio } : {}),
+        ...(f.prazo_dias ? { prazo_dias: parseInt(f.prazo_dias) } : {}),
+        ...(f.responsavel.trim() ? { responsavel: f.responsavel.trim() } : {}),
+        ...(f.observacoes.trim() ? { observacoes: f.observacoes.trim() } : {}),
+      };
+      if (modal.id) {
+        const upd = await api.prazos.atualizar(processoId, modal.id, body);
+        setPrazos(prev => prev.map(p => p.id === modal.id ? upd : p));
+      } else {
+        const novo = await api.prazos.criar(processoId, body);
+        setPrazos(prev => [...prev, novo]);
+      }
+      setModal(null);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Erro ao salvar");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  async function cumprir(prazoId: string) {
+    setCumprindo(prazoId);
+    try {
+      const upd = await api.prazos.cumprir(processoId, prazoId);
+      setPrazos(prev => prev.map(p => p.id === prazoId ? upd : p));
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Erro");
+    } finally {
+      setCumprindo(null);
+    }
+  }
+
+  async function reabrir(prazoId: string) {
+    setReabrindo(prazoId);
+    try {
+      const upd = await api.prazos.reabrir(processoId, prazoId);
+      setPrazos(prev => prev.map(p => p.id === prazoId ? upd : p));
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Erro");
+    } finally {
+      setReabrindo(null);
+    }
+  }
+
+  async function deletar(prazoId: string, titulo: string) {
+    if (!confirm(`Excluir prazo "${titulo}"?`)) return;
+    setDeletando(prazoId);
+    try {
+      await api.prazos.deletar(processoId, prazoId);
+      setPrazos(prev => prev.filter(p => p.id !== prazoId));
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Erro");
+    } finally {
+      setDeletando(null);
+    }
+  }
+
+  // ── Importar da análise de Próximos Passos / Estado Atual ──────────────────
+  async function prepararImport() {
+    try {
+      const analises = await api.analises.listar(processoId);
+      const items: ImportItem[] = [];
+
+      const passosAn = analises
+        .filter(a => a.tipo === "proximos_passos")
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+
+      const estadoAn = analises
+        .filter(a => a.tipo === "estado_atual")
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+
+      if (passosAn) {
+        const acoes = (passosAn.conteudo_json as { acoes?: unknown[] }).acoes ?? [];
+        acoes.forEach((a: unknown, i: number) => {
+          const acao = a as Record<string, string>;
+          if (acao.vencimento_estimado) {
+            items.push({
+              key: `pp-${i}`,
+              titulo: acao.acao ?? `Ação ${i + 1}`,
+              vencimento: acao.vencimento_estimado,
+              fundamento: acao.fundamento ?? acao.prazo_legal ?? "",
+              urgencia: acao.urgencia ?? "normal",
+              tipo: "processual",
+              selected: true,
+            });
+          }
+        });
+      }
+
+      if (estadoAn) {
+        const pv = (estadoAn.conteudo_json as { prazos_vivos?: unknown[] }).prazos_vivos ?? [];
+        pv.forEach((p: unknown, i: number) => {
+          const prazo = p as Record<string, string | boolean>;
+          if (prazo.vencimento_estimado) {
+            items.push({
+              key: `ea-${i}`,
+              titulo: String(prazo.descricao ?? `Prazo ${i + 1}`),
+              vencimento: String(prazo.vencimento_estimado),
+              fundamento: String(prazo.prazo_legal ?? ""),
+              urgencia: prazo.critico ? "critica" : "normal",
+              tipo: "processual",
+              selected: true,
+            });
+          }
+        });
+      }
+
+      if (items.length === 0) {
+        alert("Nenhum prazo com data estimada encontrado nas análises de Próximos Passos ou Estado Atual.\nGere essas análises primeiro.");
+        return;
+      }
+      setImportModal(items);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Erro ao carregar análises");
+    }
+  }
+
+  async function confirmarImport() {
+    if (!importModal) return;
+    const selected = importModal.filter(i => i.selected);
+    if (selected.length === 0) return;
+    setImportando(true);
+    try {
+      const urgToPrority: Record<string, string> = {
+        critica: "critica", urgente: "urgente", alta: "alta", normal: "normal", baixa: "baixa",
+      };
+      const novos: Prazo[] = [];
+      for (const item of selected) {
+        const p = await api.prazos.criar(processoId, {
+          titulo: item.titulo.slice(0, 250),
+          tipo: "processual",
+          vencimento: item.vencimento,
+          prioridade: urgToPrority[item.urgencia] ?? "normal",
+          fundamento_legal: item.fundamento || undefined,
+        });
+        novos.push(p);
+      }
+      setPrazos(prev => [...prev, ...novos]);
+      setImportModal(null);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Erro ao importar");
+    } finally {
+      setImportando(false);
+    }
+  }
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+  return (
+    <>
+      <div className="space-y-5">
+
+        {/* Cabeçalho com contadores */}
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
+            {counts.vencido > 0 && (
+              <span className="flex items-center gap-1.5 bg-red-50 border border-red-200 text-red-700 text-xs font-bold px-3 py-1.5 rounded-full">
+                🔴 {counts.vencido} vencido{counts.vencido > 1 ? "s" : ""}
+              </span>
+            )}
+            {counts.vencendo > 0 && (
+              <span className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 text-amber-700 text-xs font-bold px-3 py-1.5 rounded-full">
+                🟠 {counts.vencendo} vencendo em breve
+              </span>
+            )}
+            {counts.em_aberto > 0 && (
+              <span className="flex items-center gap-1.5 bg-green-50 border border-green-200 text-green-700 text-xs font-semibold px-3 py-1.5 rounded-full">
+                ✅ {counts.em_aberto} em aberto
+              </span>
+            )}
+            {counts.cumprido > 0 && (
+              <span className="flex items-center gap-1.5 bg-gray-50 border border-gray-200 text-gray-500 text-xs px-3 py-1.5 rounded-full">
+                ✔ {counts.cumprido} cumprido{counts.cumprido > 1 ? "s" : ""}
+              </span>
+            )}
+            {prazos.length === 0 && !loading && (
+              <span className="text-sm text-muted">Nenhum prazo cadastrado</span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <Btn onClick={prepararImport}>Importar da IA</Btn>
+            <Btn variant="gold" onClick={abrirNovo}>+ Novo Prazo</Btn>
+          </div>
+        </div>
+
+        {loading && <div className="flex justify-center py-8"><Spinner /></div>}
+
+        {/* Lista de prazos */}
+        <div className="space-y-3">
+          {sorted.map(p => {
+            const st = statusEfetivo(p);
+            const style = STATUS_PRAZO_STYLE[st];
+            const dias = diasRestantes(p.vencimento);
+            const isCumprido = st === "cumprido" || st === "cancelado";
+            const isFinished = isCumprido || st === "suspendo";
+
+            return (
+              <div key={p.id}
+                className={`bg-bg rounded-xl border-l-4 border border-border ${style.border} shadow-sm transition-all ${isCumprido ? "opacity-60" : ""}`}>
+                <div className="p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      {/* Título + badges */}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`text-sm font-bold ${isCumprido ? "line-through text-muted" : "text-text-main"}`}>
+                          {p.titulo}
+                        </span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${style.badge}`}>{style.label}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${PRIORIDADE_BADGE[p.prioridade] ?? PRIORIDADE_BADGE.normal}`}>
+                          {p.prioridade}
+                        </span>
+                        <span className="text-xs text-muted border border-border px-2 py-0.5 rounded-full">
+                          {TIPO_PRAZO_OPTIONS.find(t => t.value === p.tipo)?.label ?? p.tipo}
+                        </span>
+                      </div>
+
+                      {/* Vencimento + dias restantes */}
+                      <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                        <span className="text-xs text-muted">
+                          📅 {new Date(p.vencimento + "T00:00:00").toLocaleDateString("pt-BR")}
+                        </span>
+                        {!isFinished && (
+                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                            dias < 0
+                              ? "bg-red-100 text-red-700"
+                              : dias <= 5
+                              ? "bg-amber-100 text-amber-700"
+                              : "bg-green-100 text-green-700"
+                          }`}>
+                            {dias < 0
+                              ? `${Math.abs(dias)} dia${Math.abs(dias) !== 1 ? "s" : ""} atrasado`
+                              : dias === 0
+                              ? "Vence hoje!"
+                              : `${dias} dia${dias !== 1 ? "s" : ""} restante${dias !== 1 ? "s" : ""}`}
+                          </span>
+                        )}
+                        {p.responsavel && (
+                          <span className="text-xs text-muted">👤 {p.responsavel}</span>
+                        )}
+                      </div>
+
+                      {/* Fundamento legal */}
+                      {p.fundamento_legal && (
+                        <p className="text-xs text-muted mt-1 italic">{p.fundamento_legal}</p>
+                      )}
+
+                      {/* Descrição */}
+                      {p.descricao && (
+                        <p className="text-xs text-text-main mt-1.5 line-clamp-2">{p.descricao}</p>
+                      )}
+                    </div>
+
+                    {/* Ações */}
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      {!isFinished && (
+                        <button onClick={() => cumprir(p.id)} disabled={cumprindo === p.id}
+                          title="Marcar como cumprido"
+                          className="text-xs px-2.5 py-1 rounded-lg border border-green-300 text-green-700 hover:bg-green-50 transition-colors disabled:opacity-50">
+                          {cumprindo === p.id ? "…" : "✓ Cumprir"}
+                        </button>
+                      )}
+                      {isFinished && (
+                        <button onClick={() => reabrir(p.id)} disabled={reabrindo === p.id}
+                          title="Reabrir prazo"
+                          className="text-xs px-2.5 py-1 rounded-lg border border-border text-muted hover:bg-gray-50 transition-colors disabled:opacity-50">
+                          {reabrindo === p.id ? "…" : "↩ Reabrir"}
+                        </button>
+                      )}
+                      <Btn onClick={() => abrirEditar(p)}>Editar</Btn>
+                      <Btn variant="danger"
+                        onClick={() => deletar(p.id, p.titulo)}
+                        disabled={deletando === p.id}>
+                        {deletando === p.id ? "…" : "Excluir"}
+                      </Btn>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Modal Novo/Editar Prazo */}
+      {modal && (
+        <Modal
+          title={modal.id ? "Editar Prazo" : "Novo Prazo"}
+          onClose={() => setModal(null)}>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-muted mb-1">Título *</label>
+              <input
+                className="w-full text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:border-gold"
+                value={modal.form.titulo}
+                onChange={e => setModal(m => m && ({ ...m, form: { ...m.form, titulo: e.target.value } }))}
+                placeholder="Ex: Interpor Apelação — art. 1.003 CPC"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-muted mb-1">Tipo</label>
+                <select
+                  className="w-full text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:border-gold bg-bg"
+                  value={modal.form.tipo}
+                  onChange={e => setModal(m => m && ({ ...m, form: { ...m.form, tipo: e.target.value } }))}>
+                  {TIPO_PRAZO_OPTIONS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-muted mb-1">Prioridade</label>
+                <select
+                  className="w-full text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:border-gold bg-bg"
+                  value={modal.form.prioridade}
+                  onChange={e => setModal(m => m && ({ ...m, form: { ...m.form, prioridade: e.target.value } }))}>
+                  {PRIORIDADE_OPTIONS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-muted mb-1">Data de início (opcional)</label>
+                <input type="date"
+                  className="w-full text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:border-gold"
+                  value={modal.form.data_inicio}
+                  onChange={e => setModal(m => m && ({ ...m, form: { ...m.form, data_inicio: e.target.value } }))}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-muted mb-1">Prazo em dias (opcional)</label>
+                <input type="number" min="1"
+                  className="w-full text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:border-gold"
+                  value={modal.form.prazo_dias}
+                  placeholder="Ex: 15"
+                  onChange={e => setModal(m => m && ({ ...m, form: { ...m.form, prazo_dias: e.target.value } }))}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-muted mb-1">Vencimento *</label>
+              <input type="date"
+                className="w-full text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:border-gold"
+                value={modal.form.vencimento}
+                onChange={e => setModal(m => m && ({ ...m, form: { ...m.form, vencimento: e.target.value } }))}
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-muted mb-1">Fundamento legal</label>
+              <input
+                className="w-full text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:border-gold"
+                value={modal.form.fundamento_legal}
+                onChange={e => setModal(m => m && ({ ...m, form: { ...m.form, fundamento_legal: e.target.value } }))}
+                placeholder="Ex: art. 1.003, §5º CPC — 15 dias corridos"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-muted mb-1">Responsável</label>
+              <input
+                className="w-full text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:border-gold"
+                value={modal.form.responsavel}
+                onChange={e => setModal(m => m && ({ ...m, form: { ...m.form, responsavel: e.target.value } }))}
+                placeholder="Nome do advogado responsável"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-muted mb-1">Descrição / Observações</label>
+              <textarea rows={3}
+                className="w-full text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:border-gold resize-none"
+                value={modal.form.observacoes}
+                onChange={e => setModal(m => m && ({ ...m, form: { ...m.form, observacoes: e.target.value } }))}
+                placeholder="Contexto adicional sobre este prazo…"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-border">
+              <Btn onClick={() => setModal(null)}>Cancelar</Btn>
+              <Btn variant="gold" onClick={salvar} disabled={salvando}>
+                {salvando ? "Salvando…" : modal.id ? "Salvar alterações" : "Criar prazo"}
+              </Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Modal Importar da IA */}
+      {importModal && (
+        <Modal title="Importar prazos da análise IA" onClose={() => setImportModal(null)}>
+          <div className="space-y-4">
+            <p className="text-sm text-muted">
+              Selecione os prazos extraídos da análise de <strong>Próximos Passos</strong> ou <strong>Estado Atual</strong> para importar:
+            </p>
+            <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+              {importModal.map((item, i) => (
+                <label key={item.key}
+                  className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
+                    item.selected ? "border-gold bg-gold/5" : "border-border hover:border-gold/40"
+                  }`}>
+                  <input type="checkbox" className="mt-0.5 flex-shrink-0"
+                    checked={item.selected}
+                    onChange={() => setImportModal(prev => prev && prev.map((x, j) =>
+                      j === i ? { ...x, selected: !x.selected } : x
+                    ))}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-text-main line-clamp-2">{item.titulo}</p>
+                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                      <span className="text-xs text-muted">
+                        📅 {new Date(item.vencimento + "T00:00:00").toLocaleDateString("pt-BR")}
+                      </span>
+                      {item.urgencia && item.urgencia !== "normal" && (
+                        <span className={`text-xs px-1.5 py-0.5 rounded-full ${PRIORIDADE_BADGE[item.urgencia] ?? ""}`}>
+                          {item.urgencia}
+                        </span>
+                      )}
+                    </div>
+                    {item.fundamento && (
+                      <p className="text-xs text-muted italic mt-0.5 line-clamp-1">{item.fundamento}</p>
+                    )}
+                  </div>
+                </label>
+              ))}
+            </div>
+            <div className="flex justify-between items-center pt-2 border-t border-border">
+              <span className="text-xs text-muted">
+                {importModal.filter(i => i.selected).length} de {importModal.length} selecionados
+              </span>
+              <div className="flex gap-2">
+                <Btn onClick={() => setImportModal(null)}>Cancelar</Btn>
+                <Btn variant="gold" onClick={confirmarImport} disabled={importando || importModal.filter(i => i.selected).length === 0}>
+                  {importando ? "Importando…" : `Importar ${importModal.filter(i => i.selected).length}`}
+                </Btn>
+              </div>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </>
+  );
+}
+
+
 function AbaAtividade({ processoId }: { processoId: string }) {
   const [loading, setLoading] = useState(true);
   const [itens, setItens] = useState<{ tipo: string; titulo: string; subtitulo?: string; at: string; durMin?: number | null; badge?: string; badgeCor?: string }[]>([]);
@@ -2773,6 +3366,7 @@ export default function ProcessoPage() {
           {tab === "documentos" && <AbaDocumentos processoId={id} />}
           {tab === "pecas"      && <AbaPecas      processoId={id} />}
           {tab === "cronologia" && <AbaCronologia processoId={id} />}
+          {tab === "prazos"     && <AbaPrazos     processoId={id} />}
           {tab === "analises"   && <AbaAnalises   processoId={id} processo={processo} onRefreshProcesso={carregar} />}
           {tab === "revisao"    && <AbaRevisao    processoId={id} onRefreshProcesso={carregar} />}
           {tab === "minutas"    && <AbaMinutas    processoId={id} />}

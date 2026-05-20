@@ -127,6 +127,24 @@ export interface Minuta {
   updated_at: string;
 }
 
+export interface Prazo {
+  id: string;
+  processo_id: string;
+  titulo: string;
+  descricao?: string;
+  tipo: string;
+  fundamento_legal?: string;
+  data_inicio?: string;
+  prazo_dias?: number;
+  vencimento: string;
+  status: string;
+  prioridade: string;
+  responsavel?: string;
+  observacoes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Job {
   id: string;
   tipo: string;
@@ -306,6 +324,21 @@ export const api = {
           body: JSON.stringify({ processo_id: processoId, mensagens, tipo_peca }),
         }
       ),
+  },
+
+  prazos: {
+    listar: (processoId: string, status?: string) =>
+      req<Prazo[]>(`/processos/${processoId}/prazos${status ? `?status=${status}` : ""}`),
+    criar: (processoId: string, body: Partial<Prazo>) =>
+      req<Prazo>(`/processos/${processoId}/prazos`, { method: "POST", body: JSON.stringify(body) }),
+    atualizar: (processoId: string, prazoId: string, body: Partial<Prazo>) =>
+      req<Prazo>(`/processos/${processoId}/prazos/${prazoId}`, { method: "PATCH", body: JSON.stringify(body) }),
+    cumprir: (processoId: string, prazoId: string) =>
+      req<Prazo>(`/processos/${processoId}/prazos/${prazoId}/cumprir`, { method: "PATCH" }),
+    reabrir: (processoId: string, prazoId: string) =>
+      req<Prazo>(`/processos/${processoId}/prazos/${prazoId}/reabrir`, { method: "PATCH" }),
+    deletar: (processoId: string, prazoId: string) =>
+      req<void>(`/processos/${processoId}/prazos/${prazoId}`, { method: "DELETE" }),
   },
 
   revisao: {

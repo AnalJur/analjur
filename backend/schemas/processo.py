@@ -272,6 +272,57 @@ class MinutaOut(BaseModel):
         from_attributes = True
 
 
+# ── Prazos ───────────────────────────────────────────────────────────────
+
+class PrazoCreate(BaseModel):
+    titulo:          str
+    descricao:       Optional[str] = None
+    tipo:            str = "processual"
+    fundamento_legal: Optional[str] = None
+    data_inicio:     Optional[date] = None
+    prazo_dias:      Optional[int] = None
+    vencimento:      date
+    status:          str = "em_aberto"
+    prioridade:      str = "normal"
+    responsavel:     Optional[str] = None
+    observacoes:     Optional[str] = None
+
+
+class PrazoUpdate(BaseModel):
+    titulo:          Optional[str] = None
+    descricao:       Optional[str] = None
+    tipo:            Optional[str] = None
+    fundamento_legal: Optional[str] = None
+    data_inicio:     Optional[date] = None
+    prazo_dias:      Optional[int] = None
+    vencimento:      Optional[date] = None
+    status:          Optional[str] = None
+    prioridade:      Optional[str] = None
+    responsavel:     Optional[str] = None
+    observacoes:     Optional[str] = None
+
+
+class PrazoOut(BaseModel):
+    id:              uuid.UUID
+    processo_id:     uuid.UUID
+    titulo:          str
+    descricao:       Optional[str] = None
+    tipo:            str = "processual"
+    fundamento_legal: Optional[str] = None
+    data_inicio:     Optional[date] = None
+    prazo_dias:      Optional[int] = None
+    vencimento:      date
+    status:          str = "em_aberto"
+    prioridade:      str = "normal"
+    responsavel:     Optional[str] = None
+    observacoes:     Optional[str] = None
+    created_at:      datetime
+    updated_at:      datetime
+
+    class Config:
+        from_attributes = True
+
+
 # ── Job ───────────────────────────────────────────────────────────────────
 
 class JobOut(BaseModel):

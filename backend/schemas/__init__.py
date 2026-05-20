@@ -9,4 +9,5 @@ from .processo import (
     TarefaCreate, TarefaUpdate, TarefaOut,
     MinutaSolicitacao, MinutaUpdate, MinutaOut,
     JobOut,
+    PrazoCreate, PrazoUpdate, PrazoOut,
 )
