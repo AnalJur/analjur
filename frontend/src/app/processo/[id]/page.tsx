@@ -536,11 +536,13 @@ function AbaCronologia({ processoId }: { processoId: string }) {
 // ════════════════════════════════════════════════════════════════════════════
 
 const TIPOS_ANALISE = [
+  { id: "diagnostico_completo", label: "⚖ Diagnóstico Completo", premium: true,
+    descricao: "Análise completa como um advogado sênior: cronologia, falhas, teses, riscos e estratégia" },
   { id: "estado_atual",        label: "Estado Atual" },
   { id: "resumo_executivo",    label: "Resumo Executivo" },
   { id: "riscos",              label: "Riscos" },
   { id: "teses",               label: "Teses Jurídicas" },
-  { id: "cronologia",          label: "Cronologia" },
+  { id: "cronologia",          label: "Cronologia IA" },
   { id: "impacto_atualizacao", label: "Impacto da Atualização" },
   { id: "proximos_passos",     label: "Próximos Passos" },
   { id: "estrategia",          label: "Estratégia" },
@@ -572,7 +574,7 @@ function ModalAnalise({ analise, processoId, onUpdate, onClose, onDelete }: {
   }
 
   async function excluir() {
-    const label = TIPOS_ANALISE.find(t => t.id === analise.tipo)?.label ?? analise.tipo;
+    const label = TIPOS_ANALISE.find(t => t.id === analise.tipo)?.label ?? analise.tipo.replace(/_/g, " ");
     if (!confirm(`Excluir a análise "${label}"?`)) return;
     setLoading("excluir");
     try {
@@ -589,7 +591,7 @@ function ModalAnalise({ analise, processoId, onUpdate, onClose, onDelete }: {
     editada:   "bg-blue-100 text-blue-700",
   };
 
-  const label = TIPOS_ANALISE.find(t => t.id === analise.tipo)?.label ?? analise.tipo;
+  const label = TIPOS_ANALISE.find(t => t.id === analise.tipo)?.label ?? analise.tipo.replace(/_/g, " ");
 
   return (
     <Modal title={label} onClose={onClose} wide>
@@ -605,8 +607,11 @@ function ModalAnalise({ analise, processoId, onUpdate, onClose, onDelete }: {
         </div>
 
         {/* Conteúdo formatado */}
-        <div className="bg-bg rounded-xl border border-border p-4 max-h-[50vh] overflow-y-auto">
-          <AnaliseConteudo conteudo={analise.conteudo_json} />
+        <div className="bg-bg rounded-xl border border-border p-4 max-h-[60vh] overflow-y-auto">
+          {analise.tipo === "diagnostico_completo"
+            ? <DiagnosticoRenderer d={analise.conteudo_json} />
+            : <AnaliseConteudo conteudo={analise.conteudo_json} />
+          }
         </div>
 
         {/* Ações */}
@@ -634,6 +639,283 @@ function ModalAnalise({ analise, processoId, onUpdate, onClose, onDelete }: {
     </Modal>
   );
 }
+
+// ── Renderizador especializado para Diagnóstico Completo ────────────────────
+
+function RiscoTag({ s }: { s: string }) {
+  const m: Record<string, string> = {
+    critica: "bg-red-100 text-red-700 border-red-200",
+    alta: "bg-orange-100 text-orange-700 border-orange-200",
+    alto: "bg-orange-100 text-orange-700 border-orange-200",
+    media: "bg-yellow-100 text-yellow-700 border-yellow-200",
+    medio: "bg-yellow-100 text-yellow-700 border-yellow-200",
+    baixa: "bg-green-100 text-green-700 border-green-200",
+    baixo: "bg-green-100 text-green-700 border-green-200",
+  };
+  return <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${m[s.toLowerCase()] ?? "bg-gray-100 text-gray-600 border-gray-200"}`}>{s}</span>;
+}
+
+function PerspTag({ p }: { p: string }) {
+  const m: Record<string, string> = {
+    favoravel: "bg-green-100 text-green-700",
+    desfavoravel: "bg-red-100 text-red-700",
+    incerta: "bg-yellow-100 text-yellow-700",
+    equilibrada: "bg-blue-100 text-blue-700",
+  };
+  return <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${m[p] ?? "bg-gray-100 text-gray-600"}`}>{p}</span>;
+}
+
+function SectionTitle({ icon, title }: { icon: string; title: string }) {
+  return (
+    <div className="flex items-center gap-2 mb-3 pb-2 border-b border-border">
+      <span className="text-base">{icon}</span>
+      <h4 className="text-sm font-bold text-text-main uppercase tracking-wide">{title}</h4>
+    </div>
+  );
+}
+
+function DiagnosticoRenderer({ d }: { d: Record<string, unknown> }) {
+  const cronologia = (d.cronologia_marcos ?? []) as Array<Record<string, unknown>>;
+  const falhas = d.falhas_e_oportunidades as Record<string, unknown> | undefined;
+  const vantagens = (falhas?.vantagem_do_cliente ?? []) as Array<Record<string, unknown>>;
+  const riscosDoCli = (falhas?.risco_do_cliente ?? []) as Array<Record<string, unknown>>;
+  const teses = d.teses_juridicas as Record<string, unknown> | undefined;
+  const naoLevantadas = (teses?.nao_levantadas_mas_deveriam ?? []) as Array<Record<string, unknown>>;
+  const adversario = (teses?.do_adversario_que_preocupam ?? []) as Array<Record<string, unknown>>;
+  const levantadas = (teses?.levantadas_pelo_cliente ?? []) as Array<Record<string, unknown>>;
+  const estrategia = d.estrategia_recomendada as Record<string, unknown> | undefined;
+  const proxPassos = (d.proximos_passos ?? []) as Array<Record<string, unknown>>;
+  const alertas = (d.alertas_criticos ?? []) as string[];
+  const avaliacao = d.avaliacao_chances as Record<string, unknown> | undefined;
+
+  return (
+    <div className="space-y-6 text-sm">
+      {/* Cabeçalho executivo */}
+      <div className="bg-navy/5 rounded-xl p-4 space-y-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {d.instancia && <span className="text-xs bg-navy/10 text-navy px-2 py-0.5 rounded font-semibold">{String(d.instancia)}</span>}
+          {d.fase_processual && <span className="text-xs text-muted">{String(d.fase_processual)}</span>}
+          {d.valor_causa && <span className="text-xs text-muted">Valor: {String(d.valor_causa)}</span>}
+          {d.nivel_risco_global && <RiscoTag s={String(d.nivel_risco_global)} />}
+          {avaliacao?.perspectiva && <PerspTag p={String(avaliacao.perspectiva)} />}
+        </div>
+        {d.situacao_executiva && (
+          <p className="text-sm text-text-main leading-relaxed font-medium">{String(d.situacao_executiva)}</p>
+        )}
+        {avaliacao && (
+          <div className="mt-2 space-y-1">
+            {avaliacao.percentual_estimado && (
+              <p className="text-xs text-muted"><strong>Estimativa:</strong> {String(avaliacao.percentual_estimado)}</p>
+            )}
+            {avaliacao.justificativa && (
+              <p className="text-xs text-muted">{String(avaliacao.justificativa)}</p>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Alertas críticos */}
+      {alertas.length > 0 && (
+        <div className="bg-red-50 rounded-xl border border-red-200 p-4">
+          <SectionTitle icon="🚨" title="Alertas Críticos" />
+          <ul className="space-y-1.5">
+            {alertas.map((a, i) => (
+              <li key={i} className="flex gap-2 text-red-700 text-xs"><span className="flex-shrink-0">▶</span><span>{a}</span></li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Cronologia de marcos */}
+      {cronologia.length > 0 && (
+        <div>
+          <SectionTitle icon="📅" title="Cronologia — Marcos do Processo" />
+          <div className="relative">
+            <div className="absolute left-3 top-0 bottom-0 w-px bg-border" />
+            <div className="space-y-3 pl-8">
+              {cronologia.map((ev, i) => {
+                const relev = String(ev.relevancia ?? "media");
+                const dotColor = relev === "critica" ? "bg-red-500" : relev === "alta" ? "bg-orange-400" : "bg-gold";
+                return (
+                  <div key={i} className="relative">
+                    <div className={`absolute -left-5 top-2 w-2.5 h-2.5 rounded-full ${dotColor}`} />
+                    <div className="bg-bg rounded-lg border border-border p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs font-mono text-muted">
+                          {ev.data ? new Date(String(ev.data) + "T12:00:00").toLocaleDateString("pt-BR") : "Data?"}
+                        </span>
+                        <RelevBadge r={relev} />
+                        {ev.tipo && <span className="text-xs text-muted">{String(ev.tipo).replace(/_/g, " ")}</span>}
+                      </div>
+                      <p className="text-xs text-text-main">{String(ev.descricao ?? "")}</p>
+                      {ev.fonte_peca && <p className="text-xs text-muted mt-1 italic">{String(ev.fonte_peca)}</p>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Falhas e oportunidades */}
+      {(vantagens.length > 0 || riscosDoCli.length > 0) && (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          {vantagens.length > 0 && (
+            <div className="bg-green-50 rounded-xl border border-green-200 p-4">
+              <SectionTitle icon="✅" title="Oportunidades para o Cliente" />
+              <div className="space-y-3">
+                {vantagens.map((v, i) => (
+                  <div key={i} className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <RiscoTag s={String(v.potencial ?? "medio")} />
+                      <span className="text-xs font-semibold text-green-800">{String(v.tipo ?? "").replace(/_/g, " ")}</span>
+                    </div>
+                    <p className="text-xs text-text-main">{String(v.descricao ?? "")}</p>
+                    {v.fundamento_legal && <p className="text-xs text-muted">⚖ {String(v.fundamento_legal)}</p>}
+                    {v.como_explorar && <p className="text-xs text-green-700 font-medium">→ {String(v.como_explorar)}</p>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {riscosDoCli.length > 0 && (
+            <div className="bg-red-50 rounded-xl border border-red-200 p-4">
+              <SectionTitle icon="⚠️" title="Riscos para o Cliente" />
+              <div className="space-y-3">
+                {riscosDoCli.map((r, i) => (
+                  <div key={i} className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <RiscoTag s={String(r.severidade ?? "media")} />
+                      <span className="text-xs font-semibold text-red-800">{String(r.tipo ?? "").replace(/_/g, " ")}</span>
+                    </div>
+                    <p className="text-xs text-text-main">{String(r.descricao ?? "")}</p>
+                    {r.fundamento_legal && <p className="text-xs text-muted">⚖ {String(r.fundamento_legal)}</p>}
+                    {r.como_mitigar && <p className="text-xs text-orange-700 font-medium">→ Mitigação: {String(r.como_mitigar)}</p>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Teses jurídicas */}
+      {teses && (
+        <div className="space-y-4">
+          <SectionTitle icon="⚖" title="Teses Jurídicas" />
+          {levantadas.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-2">Levantadas pelo cliente</p>
+              <div className="space-y-2">
+                {levantadas.map((t, i) => (
+                  <div key={i} className="bg-bg rounded-lg border border-border p-3 flex items-start gap-3">
+                    <RiscoTag s={String(t.forca ?? "razoavel")} />
+                    <div>
+                      <p className="text-xs text-text-main">{String(t.tese ?? "")}</p>
+                      {t.fundamento && <p className="text-xs text-muted mt-0.5">⚖ {String(t.fundamento)}</p>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {naoLevantadas.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-orange-600 uppercase tracking-wide mb-2">⚡ Teses não levantadas — deveriam ser</p>
+              <div className="space-y-2">
+                {naoLevantadas.map((t, i) => (
+                  <div key={i} className="bg-orange-50 rounded-lg border border-orange-200 p-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <RiscoTag s={String(t.potencial ?? "medio")} />
+                      <span className="text-xs font-semibold text-orange-800">potencial</span>
+                    </div>
+                    <p className="text-xs text-text-main">{String(t.tese ?? "")}</p>
+                    {t.fundamento && <p className="text-xs text-muted mt-0.5">⚖ {String(t.fundamento)}</p>}
+                    {t.observacao && <p className="text-xs text-orange-700 mt-0.5 italic">{String(t.observacao)}</p>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {adversario.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-red-600 uppercase tracking-wide mb-2">Teses do adversário que preocupam</p>
+              <div className="space-y-2">
+                {adversario.map((t, i) => (
+                  <div key={i} className="bg-bg rounded-lg border border-border p-3 flex items-start gap-3">
+                    <RiscoTag s={String(t.risco ?? "medio")} />
+                    <div>
+                      <p className="text-xs text-text-main">{String(t.tese ?? "")}</p>
+                      {t.fundamento && <p className="text-xs text-muted mt-0.5">⚖ {String(t.fundamento)}</p>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Estratégia recomendada */}
+      {estrategia && (
+        <div className="bg-navy/5 rounded-xl border border-navy/20 p-4 space-y-3">
+          <SectionTitle icon="🎯" title={`Estratégia: ${String(estrategia.nome ?? "")}`} />
+          {estrategia.descricao && <p className="text-xs text-text-main leading-relaxed">{String(estrategia.descricao)}</p>}
+          {Array.isArray(estrategia.acoes_concretas) && estrategia.acoes_concretas.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-1">Ações concretas</p>
+              <ul className="space-y-1">
+                {(estrategia.acoes_concretas as string[]).map((a, i) => (
+                  <li key={i} className="flex gap-2 text-xs text-text-main"><span className="text-gold flex-shrink-0">{i+1}.</span><span>{a}</span></li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {Array.isArray(estrategia.pecas_a_protocolar) && estrategia.pecas_a_protocolar.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-1">Peças a protocolar</p>
+              <ul className="space-y-1">
+                {(estrategia.pecas_a_protocolar as string[]).map((p, i) => (
+                  <li key={i} className="flex gap-2 text-xs text-text-main"><span className="text-blue-500 flex-shrink-0">•</span><span>{p}</span></li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {estrategia.probabilidade_sucesso && (
+            <p className="text-xs text-green-700 font-semibold">📊 {String(estrategia.probabilidade_sucesso)}</p>
+          )}
+        </div>
+      )}
+
+      {/* Próximos passos */}
+      {proxPassos.length > 0 && (
+        <div>
+          <SectionTitle icon="📋" title="Próximos Passos" />
+          <div className="space-y-2">
+            {proxPassos.map((p, i) => {
+              const urg = String(p.urgencia ?? "normal");
+              const urgColor = urg === "critica" ? "border-red-400 bg-red-50" : urg === "urgente" ? "border-orange-400 bg-orange-50" : urg === "alta" ? "border-yellow-400 bg-yellow-50" : "border-border bg-bg";
+              return (
+                <div key={i} className={`rounded-lg border-l-4 p-3 ${urgColor}`}>
+                  <div className="flex items-center gap-2 mb-1">
+                    <RiscoTag s={urg} />
+                    {p.prazo_legal && <span className="text-xs text-muted">{String(p.prazo_legal)}</span>}
+                    {p.vencimento_estimado && <span className="text-xs font-mono text-orange-600">{new Date(String(p.vencimento_estimado) + "T12:00:00").toLocaleDateString("pt-BR")}</span>}
+                  </div>
+                  <p className="text-xs font-semibold text-text-main">{String(p.acao ?? "")}</p>
+                  {p.consequencia_inacao && <p className="text-xs text-red-600 mt-0.5">⚠ Se não agir: {String(p.consequencia_inacao)}</p>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Renderizador genérico (fallback) ──────────────────────────────────────────
 
 function AnaliseConteudo({ conteudo }: { conteudo: Record<string, unknown> }) {
   // Renderiza o JSON de forma legível e organizada
@@ -717,7 +999,7 @@ function AbaAnalises({ processoId, onRefreshProcesso }: { processoId: string; on
   }
 
   async function handleDeleteAnalise(analiseId: string, tipo: string) {
-    const label = TIPOS_ANALISE.find(t => t.id === tipo)?.label ?? tipo;
+    const label = getLabelAnalise(tipo);
     if (!confirm(`Excluir a análise "${label}"?`)) return;
     setDeletandoAnalise(analiseId);
     try {
@@ -745,8 +1027,13 @@ function AbaAnalises({ processoId, onRefreshProcesso }: { processoId: string; on
     editada:   "bg-blue-100 text-blue-700",
   };
 
+  function getLabelAnalise(tipo: string) {
+    const t = TIPOS_ANALISE.find(x => x.id === tipo);
+    return t?.label ?? tipo.replace(/_/g, " ");
+  }
+
   const analisesFiltradas = analises.filter(a => {
-    const label = TIPOS_ANALISE.find(t => t.id === a.tipo)?.label ?? a.tipo;
+    const label = getLabelAnalise(a.tipo);
     return label.toLowerCase().includes(busca.toLowerCase()) ||
       a.status_revisao.toLowerCase().includes(busca.toLowerCase());
   });
@@ -755,19 +1042,49 @@ function AbaAnalises({ processoId, onRefreshProcesso }: { processoId: string; on
     <>
       <div className="space-y-6">
         {/* Painel gerar análise */}
-        <div className="bg-gray-50 rounded-xl border border-border p-5">
-          <h3 className="text-sm font-bold text-text-main mb-1">Gerar nova análise</h3>
-          <p className="text-xs text-muted mb-3">
-            Clique no tipo desejado. Você poderá escolher quais documentos usar antes de confirmar.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {TIPOS_ANALISE.map(t => (
-              <button key={t.id} onClick={() => iniciarGeracao(t.id)} disabled={!!gerando}
-                className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all disabled:opacity-50 disabled:cursor-not-allowed
-                  ${gerando === t.id ? "border-gold bg-gold/10 text-gold" : "border-border hover:border-gold hover:text-gold hover:bg-gold/5"}`}>
-                {gerando === t.id ? <span className="flex items-center gap-1"><Spinner sm /> Gerando…</span> : t.label}
+        <div className="bg-gray-50 rounded-xl border border-border p-5 space-y-4">
+          <div>
+            <h3 className="text-sm font-bold text-text-main mb-1">Gerar nova análise</h3>
+            <p className="text-xs text-muted">
+              Clique no tipo desejado. Você poderá escolher quais documentos usar antes de confirmar.
+            </p>
+          </div>
+
+          {/* Diagnóstico Completo — destaque */}
+          {(() => {
+            const dc = TIPOS_ANALISE.find(t => t.premium);
+            if (!dc) return null;
+            return (
+              <button onClick={() => iniciarGeracao(dc.id)} disabled={!!gerando}
+                className={`w-full flex items-start gap-4 p-4 rounded-xl border-2 text-left transition-all disabled:opacity-50 disabled:cursor-not-allowed
+                  ${gerando === dc.id
+                    ? "border-gold bg-gold/10"
+                    : "border-gold/60 bg-gradient-to-r from-gold/5 to-transparent hover:border-gold hover:from-gold/10"}`}>
+                <div className="text-2xl flex-shrink-0">⚖</div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold text-text-main">Diagnóstico Completo</p>
+                  <p className="text-xs text-muted mt-0.5">{dc.descricao}</p>
+                </div>
+                {gerando === dc.id
+                  ? <span className="flex items-center gap-1 text-xs text-gold font-semibold flex-shrink-0"><Spinner sm /> Analisando…</span>
+                  : <span className="text-xs font-semibold text-gold flex-shrink-0">Gerar →</span>
+                }
               </button>
-            ))}
+            );
+          })()}
+
+          {/* Análises individuais */}
+          <div>
+            <p className="text-xs font-semibold text-muted uppercase tracking-wider mb-2">Análises individuais</p>
+            <div className="flex flex-wrap gap-2">
+              {TIPOS_ANALISE.filter(t => !t.premium).map(t => (
+                <button key={t.id} onClick={() => iniciarGeracao(t.id)} disabled={!!gerando}
+                  className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all disabled:opacity-50 disabled:cursor-not-allowed
+                    ${gerando === t.id ? "border-gold bg-gold/10 text-gold" : "border-border hover:border-gold hover:text-gold hover:bg-gold/5"}`}>
+                  {gerando === t.id ? <span className="flex items-center gap-1"><Spinner sm /> Gerando…</span> : t.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -786,8 +1103,8 @@ function AbaAnalises({ processoId, onRefreshProcesso }: { processoId: string; on
             <div className="flex items-start justify-between gap-3 p-4">
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-bold text-text-main">
-                    {TIPOS_ANALISE.find(t => t.id === a.tipo)?.label ?? a.tipo}
+                  <span className={`text-sm font-bold ${a.tipo === "diagnostico_completo" ? "text-gold" : "text-text-main"}`}>
+                    {getLabelAnalise(a.tipo)}
                   </span>
                   <StatusBadge s={a.status_revisao} map={revisaoMap} />
                   {a.confianca !== undefined && (
@@ -827,7 +1144,7 @@ function AbaAnalises({ processoId, onRefreshProcesso }: { processoId: string; on
 
       {/* Modal seletor de documentos */}
       {mostrarSeletor && (
-        <Modal title={`Gerar: ${TIPOS_ANALISE.find(t => t.id === tipoSelecionado)?.label}`} onClose={() => setMostrarSeletor(false)}>
+        <Modal title={`Gerar: ${getLabelAnalise(tipoSelecionado ?? "")}`} onClose={() => setMostrarSeletor(false)}>
           <div className="space-y-4">
             <p className="text-sm text-muted">Selecione os documentos a usar nesta análise:</p>
             {docs.length === 0 ? (

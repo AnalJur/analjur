@@ -4,7 +4,7 @@ Análises jurídicas via Claude.
 Estratégias por tamanho:
   ≤ 185K tokens  → contexto direto (tudo enviado de uma vez)
   >  185K tokens → sumarização hierárquica por peça
-  cronologia grande → multi-pass por blocos de 80K tokens + consolidação
+  cronologia     → extração POR PEÇA (piece-anchored) + consolidação final
 """
 
 import uuid
@@ -27,13 +27,18 @@ _enc = tiktoken.get_encoding("cl100k_base")
 # Claude 3.x suporta até 200K tokens de contexto;
 # usamos 185K como teto seguro (deixa margem pro prompt + resposta).
 MAX_TOKENS_DIRECT  = 185_000
-CHUNK_TOKENS_CRON  = 80_000   # bloco para multi-pass de cronologia
-CHUNK_OVERLAP      = 2_000    # sobreposição entre blocos
-RESUMO_MAX_TOKENS  = 2_500    # tokens de saída por peça resumida (era 600)
+PECA_MAX_TOKENS    = 90_000    # máximo de tokens por peça para cronologia
+RESUMO_MAX_TOKENS  = 2_500    # tokens de saída por peça resumida
 
 PECAS_PRIORITARIAS = {
     "sentenca", "acordao", "decisao_interlocutoria", "peticao_inicial",
     "contestacao", "recurso",
+}
+
+# Peças que merecem o modelo Sonnet (mais poderoso) na extração de cronologia
+PECAS_PREMIUM = {
+    "sentenca", "acordao", "peticao_inicial", "recurso",
+    "embargos_declaracao", "agravo",
 }
 
 
@@ -366,6 +371,112 @@ JSON schema:
 }""",
     },
 
+    # ── DIAGNÓSTICO COMPLETO ──────────────────────────────────────────────────
+    "diagnostico_completo": {
+        "instrucao": """Você é um advogado sênior recebendo este processo para análise completa. \
+Produza um diagnóstico COMPLETO como se fosse preparar um parecer para o cliente antes de uma audiência decisiva.
+
+SEU DIAGNÓSTICO DEVE COBRIR:
+
+1. VISÃO GERAL: Identifique o tipo de causa, as partes, o que está em jogo e o estado atual.
+2. LINHA DO TEMPO: Extraia os atos processuais MAIS RELEVANTES em ordem cronológica (foco nos marcos: \
+   inicial, citação, contestação, audiências, decisões, recursos). Ignore atos irrelevantes.
+3. FALHAS E OPORTUNIDADES: Identifique TODOS os vícios processuais, nulidades, preclusões ou \
+   irregularidades — tanto as que podem ser exploradas em favor do cliente, quanto as que o adversário \
+   pode usar. Um advogado experiente SEMPRE verifica se: houve citação válida, se prazos foram \
+   respeitados, se há cerceamento de defesa, se a sentença foi ultra ou extra petita, se há omissões, \
+   se cláusulas são abusivas (CDC), se há prescrição/decadência não arguida.
+4. TESES JURÍDICAS: Liste as teses já levantadas e as que DEVERIAM ser levantadas mas não foram. \
+   Fundamente com artigos, súmulas e precedentes vinculantes.
+5. MAPA DE RISCOS: Avalie os riscos reais com olhar clínico — não minimize riscos para "agradar" o cliente.
+6. ESTRATÉGIA RECOMENDADA: Escolha UM caminho principal e justifique. Seja específico sobre \
+   quais peças protocolar, quais argumentos usar, quais provas produzir.
+7. PRÓXIMOS PASSOS: Liste as ações com prazo e consequência de não agir.
+
+⚠ REGRAS:
+- Base APENAS no que consta nos documentos. Nunca invente.
+- Cite fonte (tipo de peça + página) para cada afirmação relevante.
+- Use terminologia jurídica precisa.
+- Seja direto — diagnóstico real, não otimismo vazio.
+
+JSON schema:
+{
+  "situacao_executiva": "string (2-3 frases: o que é, onde está, o que está em risco)",
+  "tipo_causa": "trabalhista | civil | consumidor | tributario | criminal | administrativo | outro",
+  "instancia": "string",
+  "fase_processual": "string",
+  "partes": {
+    "autor": [{"nome": "string", "advogado": "string ou null"}],
+    "reu": [{"nome": "string", "advogado": "string ou null"}]
+  },
+  "valor_causa": "string ou null",
+  "cronologia_marcos": [
+    {
+      "data": "YYYY-MM-DD ou null",
+      "tipo": "string",
+      "descricao": "string",
+      "relevancia": "alta | critica",
+      "fonte_peca": "string"
+    }
+  ],
+  "falhas_e_oportunidades": {
+    "vantagem_do_cliente": [
+      {
+        "tipo": "nulidade | preclusao | cerceamento_defesa | sentenca_viciada | prescricao | decadencia | abusividade | outro",
+        "descricao": "string",
+        "fundamento_legal": "string",
+        "como_explorar": "string",
+        "potencial": "alto | medio | baixo"
+      }
+    ],
+    "risco_do_cliente": [
+      {
+        "tipo": "string",
+        "descricao": "string",
+        "fundamento_legal": "string",
+        "como_mitigar": "string",
+        "severidade": "critica | alta | media | baixa"
+      }
+    ]
+  },
+  "teses_juridicas": {
+    "levantadas_pelo_cliente": [{"tese": "string", "fundamento": "string", "forca": "solida | razoavel | fragil"}],
+    "nao_levantadas_mas_deveriam": [{"tese": "string", "fundamento": "string", "potencial": "alto | medio | baixo", "observacao": "string"}],
+    "do_adversario_que_preocupam": [{"tese": "string", "fundamento": "string", "risco": "alto | medio | baixo"}]
+  },
+  "avaliacao_chances": {
+    "perspectiva": "favoravel | desfavoravel | incerta | equilibrada",
+    "percentual_estimado": "string (ex: 60-70% de êxito no recurso)",
+    "justificativa": "string",
+    "jurisprudencia_dominante": "string"
+  },
+  "nivel_risco_global": "baixo | medio | alto | critico",
+  "exposicao_financeira": {
+    "valor_principal": "string ou null",
+    "total_estimado_com_acessorios": "string ou null"
+  },
+  "estrategia_recomendada": {
+    "nome": "string",
+    "descricao": "string",
+    "acoes_concretas": ["string"],
+    "pecas_a_protocolar": ["string"],
+    "precedentes_a_citar": ["string"],
+    "probabilidade_sucesso": "string"
+  },
+  "proximos_passos": [
+    {
+      "acao": "string",
+      "urgencia": "critica | urgente | alta | normal",
+      "prazo_legal": "string",
+      "vencimento_estimado": "YYYY-MM-DD ou null",
+      "consequencia_inacao": "string"
+    }
+  ],
+  "alertas_criticos": ["string"],
+  "confianca": 0.0
+}""",
+    },
+
     # ── IMPACTO DA ATUALIZAÇÃO ────────────────────────────────────────────────
     "impacto_atualizacao": {
         "instrucao": """O processo recebeu novos documentos. Analise o IMPACTO dessas novidades \
@@ -392,6 +503,111 @@ JSON schema:
 }""",
     },
 }
+
+
+# ── Dicas por tipo de peça para cronologia ─────────────────────────────────────
+
+_DICAS_TIPO_PECA: dict[str, str] = {
+    "sentenca": (
+        "data de prolação da sentença, nome do juiz/juíza, dispositivo (procedente/improcedente/parcialmente "
+        "procedente), valor da condenação se houver, data da publicação/intimação"
+    ),
+    "acordao": (
+        "data do julgamento, órgão julgador (turma/câmara/seção), relator(a), resultado "
+        "(provido/improvido/parcialmente provido/não conhecido), ementa resumida, data da publicação"
+    ),
+    "peticao_inicial": (
+        "data do protocolo no sistema, nome do advogado subscritor, pedidos principais formulados, "
+        "valor atribuído à causa, requerimento de liminar/tutela se houver"
+    ),
+    "contestacao": (
+        "data do protocolo, advogado do réu, principais teses de defesa arguidas, "
+        "preliminares processuais suscitadas, documentos relevantes juntados"
+    ),
+    "recurso": (
+        "tipo exato de recurso (apelação / agravo de instrumento / agravo regimental / agravo interno / "
+        "embargos de declaração / REsp / RE / agravo em REsp), data do protocolo/interposição, "
+        "data do julgamento se houver, resultado do julgamento"
+    ),
+    "embargos_declaracao": (
+        "data do protocolo, quem embargou (autor/réu), vício apontado (omissão/contradição/obscuridade), "
+        "data do julgamento, resultado (acolhido/rejeitado), efeitos infringentes se houver"
+    ),
+    "agravo": (
+        "tipo de agravo, data de interposição, decisão agravada, data do julgamento, resultado"
+    ),
+    "decisao_interlocutoria": (
+        "data da decisão, conteúdo (tutela deferida/indeferida, prova deferida/indeferida, "
+        "saneamento, audiência designada), prazo concedido às partes, nome do juiz"
+    ),
+    "despacho": (
+        "data, conteúdo do despacho, determinação ao escrivão/serventuário, prazo dado"
+    ),
+    "citacao": (
+        "data em que foi realizada (certificada pelo oficial), modo (pessoal / carta com AR / "
+        "edital / eletrônica), nome do citado, data da juntada do mandado/aviso"
+    ),
+    "intimacao": (
+        "data, conteúdo da intimação, prazo concedido, meio (DJe / pessoal / eletrônico)"
+    ),
+    "audiencia": (
+        "data e hora de realização, partes presentes (e ausentes com ou sem justificativa), "
+        "resultado (acordo / instrução / tentativa frustrada), determinações ao final, "
+        "depoimentos colhidos"
+    ),
+    "pericia": (
+        "data de nomeação do perito, data de apresentação do laudo, conclusão do perito, "
+        "impugnações das partes"
+    ),
+    "cumprimento_sentenca": (
+        "data do início, valor apresentado, data da penhora/arresto se houver, "
+        "atos de constrição patrimonial, impugnação ao cumprimento"
+    ),
+    "peticao": (
+        "data do protocolo, conteúdo do pedido formulado, resultado/decisão sobre o pedido"
+    ),
+    "outro": (
+        "qualquer ato processual identificável com data no formato DD/MM/AAAA ou por extenso, "
+        "quem praticou e qual o resultado"
+    ),
+}
+
+_INSTRUCAO_EXTRACAO_PECA = """\
+Você está analisando UMA PEÇA PROCESSUAL de um processo judicial brasileiro.
+
+IDENTIFICAÇÃO DA PEÇA:
+- Tipo: {tipo_peca_label}
+- Localização: {pags}
+- Peça {idx_peca} de {total_pecas} do processo
+
+TAREFA: Extraia TODOS os atos e marcos processuais presentes NESTA PEÇA.
+
+Para este tipo de peça, preste especial atenção em:
+{dicas}
+
+⚠ REGRAS ANTI-CONTAMINAÇÃO DE DATAS (crítico):
+- Extraia SOMENTE datas de atos praticados NESTE processo
+- IGNORE: datas de jurisprudência citada, anos de leis ("art. X da Lei 8.078/1990"), \
+contratos anteriores usados como prova, certidões de outros processos, datas de nascimento
+- Datas válidas estão no formato DD/MM/AAAA, "em X de [mês] de [ano]", "aos X dias do mês de Y"
+- Um ato é válido apenas se estiver claramente vinculado a algo que ocorreu NESTE processo
+
+Responda SOMENTE com JSON válido, sem texto adicional:
+{{
+  "eventos": [
+    {{
+      "data": "YYYY-MM-DD ou null",
+      "data_aproximada": false,
+      "tipo": "protocolo_inicial | despacho | citacao | contestacao | replica | audiencia | pericia | decisao_interlocutoria | sentenca | acordao | recurso | contrarrazoes | publicacao | intimacao | cumprimento | outro",
+      "descricao": "descrição completa: quem praticou, o que ocorreu, qual resultado",
+      "relevancia": "baixa | media | alta | critica",
+      "fonte_peca": "{tipo_peca_label} — {pags}"
+    }}
+  ]
+}}
+
+Se não há atos processuais identificáveis, retorne {{"eventos": []}}.\
+"""
 
 
 # ── Busca de peças ─────────────────────────────────────────────────────────────
@@ -489,119 +705,117 @@ async def _montar_contexto_hierarquico(pecas: list[dict], client: anthropic.Anth
     return "\n\n".join(partes)
 
 
-# ── Multi-pass para cronologia ────────────────────────────────────────────────
+# ── Cronologia por peça (piece-anchored) ─────────────────────────────────────
 
-_INSTRUCAO_CHUNK_CRON = """Extraia ATOS PROCESSUAIS deste trecho de processo judicial brasileiro.
+def _extrair_eventos_peca_sync(
+    peca: dict,
+    idx: int,
+    total: int,
+    client: anthropic.Anthropic,
+    use_premium: bool,
+) -> list[dict]:
+    """
+    Extrai eventos cronológicos de UMA peça com contexto do tipo da peça.
+    Usa Sonnet para peças importantes, Haiku para as demais.
+    """
+    texto     = peca.get("conteudo_texto") or ""
+    tipo_peca = peca.get("tipo_peca", "outro")
+    pags      = f"pág. {peca.get('pagina_inicio')}-{peca.get('pagina_fim')}"
+    dicas     = _DICAS_TIPO_PECA.get(tipo_peca, _DICAS_TIPO_PECA["outro"])
+    model     = settings.llm_model if use_premium else "claude-haiku-4-5-20251001"
 
-⚠ REGRAS ANTI-CONTAMINAÇÃO (siga rigorosamente):
-- Extraia SOMENTE atos praticados NESTE processo: protocolos, despachos, decisões, citações, \
-  intimações, audiências, publicações, recursos, sentenças.
-- IGNORE datas de: jurisprudência citada, leis referenciadas, contratos anexados, \
-  certidões de outros processos, datas de nascimento, datas de fatos anteriores à ação.
-- Se uma data viola a lógica processual (ex: recurso antes da decisão), descarte-a.
+    instrucao = _INSTRUCAO_EXTRACAO_PECA.format(
+        tipo_peca_label=tipo_peca.replace("_", " ").title(),
+        pags=pags,
+        idx_peca=idx,
+        total_pecas=total,
+        dicas=dicas,
+    )
 
-Responda SOMENTE com JSON válido:
-{
-  "eventos": [
-    {
-      "data": "YYYY-MM-DD ou null",
-      "data_aproximada": false,
-      "tipo": "protocolo_inicial | despacho | citacao | contestacao | replica | audiencia | pericia | decisao_interlocutoria | sentenca | acordao | recurso | contrarrazoes | publicacao | intimacao | cumprimento | outro",
-      "descricao": "descrição completa identificando quem praticou o ato e o resultado",
-      "relevancia": "baixa | media | alta | critica",
-      "fonte_peca": "tipo de peça e número de página"
-    }
-  ]
-}
+    # Se a peça for muito grande, trunca (extração da parte inicial, que normalmente tem
+    # o cabeçalho com data) + parte final (que tem dispositivo/assinatura)
+    max_chars = PECA_MAX_TOKENS * 4  # aprox 4 chars por token
+    if len(texto) > max_chars:
+        metade = max_chars // 2
+        texto_enviado = texto[:metade] + "\n\n[... TEXTO TRUNCADO ...]\n\n" + texto[-metade:]
+    else:
+        texto_enviado = texto
 
-Se não há atos processuais identificáveis neste trecho, retorne {"eventos": []}."""
+    try:
+        msg = client.messages.create(
+            model=model,
+            max_tokens=2048,
+            system=SYSTEM_BASE,
+            messages=[{
+                "role": "user",
+                "content": f"{instrucao}\n\nTEXTO DA PEÇA:\n\n{texto_enviado}",
+            }],
+        )
+        raw = msg.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1].rsplit("```", 1)[0]
+        data = json.loads(raw)
+        evs = data.get("eventos", [])
+        return evs
+    except Exception as e:
+        logger.warning(f"  Peça {idx}/{total} ({tipo_peca}, {pags}) falhou: {e}")
+        return []
 
 
-async def _cronologia_multipass(
+async def _cronologia_por_peca(
     pecas: list[dict],
     client: anthropic.Anthropic,
 ) -> list[dict]:
     """
-    Processa o documento em blocos de CHUNK_TOKENS_CRON tokens.
-    Extrai eventos de cada bloco com Haiku (rápido) e consolida.
+    Estratégia piece-anchored para cronologia:
+    - Processa cada peça individualmente com contexto do tipo de peça
+    - Usa Sonnet para peças prioritárias, Haiku para secundárias
+    - Deduplicação precisa baseada em data+tipo+descricao
     """
     import asyncio
 
-    # Concatena tudo em ordem de página
-    texto_total = ""
-    for p in pecas:
-        tipo  = p.get("tipo_peca", "peca").upper()
-        pags  = f"pág. {p.get('pagina_inicio')}-{p.get('pagina_fim')}"
-        texto = p.get("conteudo_texto") or ""
-        texto_total += f"\n\n=== {tipo} ({pags}) ===\n{texto}"
-
-    tokens_total = _enc.encode(texto_total)
-    total = len(tokens_total)
-    logger.info(f"Cronologia multi-pass: {total:,} tokens totais")
-
-    if total == 0:
+    pecas_com_texto = [p for p in pecas if (p.get("conteudo_texto") or "").strip()]
+    if not pecas_com_texto:
         return []
 
-    # Divide em blocos com sobreposição
-    blocos: list[str] = []
-    step = CHUNK_TOKENS_CRON - CHUNK_OVERLAP
-    for inicio in range(0, total, step):
-        fim = min(inicio + CHUNK_TOKENS_CRON, total)
-        blocos.append(_enc.decode(tokens_total[inicio:fim]))
-
-    logger.info(f"Cronologia multi-pass: {len(blocos)} bloco(s)")
+    total = len(pecas_com_texto)
+    logger.info(f"Cronologia piece-anchored: {total} peças com texto")
 
     todos_eventos: list[dict] = []
+    loop = asyncio.get_event_loop()
 
-    async def processar_bloco(idx: int, bloco: str) -> list[dict]:
-        try:
-            loop = asyncio.get_event_loop()
-            msg = await loop.run_in_executor(
-                None,
-                functools.partial(
-                    client.messages.create,
-                    model="claude-haiku-4-5-20251001",
-                    max_tokens=4096,
-                    system=SYSTEM_BASE,
-                    messages=[{
-                        "role": "user",
-                        "content": (
-                            f"TRECHO {idx + 1}/{len(blocos)} DO PROCESSO:\n\n"
-                            f"{bloco}\n\nTAREFA:\n{_INSTRUCAO_CHUNK_CRON}"
-                        ),
-                    }],
-                ),
-            )
-            raw = msg.content[0].text.strip()
-            if raw.startswith("```"):
-                raw = raw.split("\n", 1)[1].rsplit("```", 1)[0]
-            data = json.loads(raw)
-            evs = data.get("eventos", [])
-            logger.info(f"  Bloco {idx + 1}: {len(evs)} eventos")
-            return evs
-        except Exception as e:
-            logger.warning(f"  Bloco {idx + 1} falhou: {e}")
-            return []
+    for idx, peca in enumerate(pecas_com_texto, start=1):
+        tipo_peca   = peca.get("tipo_peca", "outro")
+        use_premium = tipo_peca in PECAS_PREMIUM
+        model_label = "Sonnet" if use_premium else "Haiku"
+        pags        = f"pág. {peca.get('pagina_inicio')}-{peca.get('pagina_fim')}"
 
-    # Processa blocos sequencialmente para não sobrecarregar a API
-    for idx, bloco in enumerate(blocos):
-        evs = await processar_bloco(idx, bloco)
+        logger.info(f"  [{idx}/{total}] {tipo_peca} ({pags}) → {model_label}")
+
+        evs = await loop.run_in_executor(
+            None,
+            functools.partial(
+                _extrair_eventos_peca_sync,
+                peca, idx, total, client, use_premium,
+            ),
+        )
         todos_eventos.extend(evs)
+        logger.info(f"    → {len(evs)} eventos extraídos")
 
-    # Deduplicação simples: remove eventos com mesma data+tipo+descricao_inicio
+    # Deduplicação: mesma data + tipo + início da descrição (60 chars)
     seen: set[tuple] = set()
     dedup: list[dict] = []
     for ev in todos_eventos:
         chave = (
             ev.get("data") or "",
             ev.get("tipo") or "",
-            (ev.get("descricao") or "")[:60],
+            (ev.get("descricao") or "")[:80].lower().strip(),
         )
         if chave not in seen:
             seen.add(chave)
             dedup.append(ev)
 
-    logger.info(f"Cronologia multi-pass: {len(todos_eventos)} eventos → {len(dedup)} após dedup")
+    logger.info(f"Cronologia: {len(todos_eventos)} eventos → {len(dedup)} após dedup")
     return dedup
 
 
@@ -646,37 +860,59 @@ async def gerar_analise(
     tokens_output = 0
     estrategia    = "desconhecida"
 
-    if tipo == "cronologia" and total_tokens > MAX_TOKENS_DIRECT:
-        # Multi-pass: extrai eventos de cada bloco e consolida
-        logger.info("Cronologia: usando multi-pass para documento grande")
-        eventos = await _cronologia_multipass(pecas, client)
-        estrategia = "multipass"
+    if tipo == "cronologia":
+        # Sempre usa piece-anchored — mais preciso independente do tamanho
+        logger.info("Cronologia: usando estratégia piece-anchored")
+        eventos = await _cronologia_por_peca(pecas, client)
+        estrategia = "piece_anchored"
 
-        # Consolidação final com o modelo principal
-        resumo_eventos = json.dumps({"eventos": eventos[:300]}, ensure_ascii=False, indent=2)
-        consolidar_prompt = (
-            f"Abaixo estão eventos cronológicos extraídos de um processo judicial por blocos.\n"
-            f"Organize-os em ordem cronológica, corrija duplicatas e classifique a relevância.\n\n"
-            f"{resumo_eventos}\n\n"
-            f"Retorne o JSON final com o schema:\n{cfg['instrucao']}"
-        )
-        msg_final = await _claude_async(
-            client,
-            model=settings.llm_model,
-            max_tokens=4096,
-            system=SYSTEM_BASE,
-            messages=[{"role": "user", "content": consolidar_prompt}],
-        )
-        tokens_input  = msg_final.usage.input_tokens
-        tokens_output = msg_final.usage.output_tokens
-        raw = msg_final.content[0].text.strip()
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1].rsplit("```", 1)[0]
-        try:
-            conteudo_json = json.loads(raw)
-        except json.JSONDecodeError:
-            # Se consolidação falhar, usa os eventos brutos
-            conteudo_json = {"eventos": eventos, "confianca": 0.7}
+        # Consolidação final: ordena, valida lógica processual e enriquece
+        n_eventos = len(eventos)
+        if n_eventos == 0:
+            conteudo_json = {
+                "eventos": [],
+                "inconsistencias": ["Nenhum ato processual identificado nas peças"],
+                "periodo_total": {"inicio": None, "fim": None, "duracao_aproximada": "desconhecida"},
+                "confianca": 0.3,
+            }
+        else:
+            resumo_bruto = json.dumps({"eventos": eventos}, ensure_ascii=False, indent=2)
+            consolidar_prompt = (
+                f"Abaixo estão {n_eventos} atos processuais extraídos peça a peça de um processo judicial.\n\n"
+                f"TAREFAS DE CONSOLIDAÇÃO:\n"
+                f"1. Ordene os eventos cronologicamente (do mais antigo para o mais recente)\n"
+                f"2. Aplique as regras de lógica processual (inicial ANTES de citação ANTES de contestação "
+                f"ANTES de sentença ANTES de recursos)\n"
+                f"3. Descarte eventos que violem a lógica (ex: recurso anterior à decisão) e registre "
+                f"em 'inconsistencias'\n"
+                f"4. Elimine duplicatas remanescentes\n"
+                f"5. Eleve a relevância de: sentença, acórdão, interposição de recursos, citação, "
+                f"decisões de tutela para 'critica' ou 'alta'\n"
+                f"6. Calcule o período total do processo\n\n"
+                f"EVENTOS BRUTOS:\n{resumo_bruto}\n\n"
+                f"TAREFA FINAL:\n{cfg['instrucao']}"
+            )
+            msg_final = await _claude_async(
+                client,
+                model=settings.llm_model,
+                max_tokens=8192,
+                system=SYSTEM_BASE,
+                messages=[{"role": "user", "content": consolidar_prompt}],
+            )
+            tokens_input  = msg_final.usage.input_tokens
+            tokens_output = msg_final.usage.output_tokens
+            raw = msg_final.content[0].text.strip()
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[1].rsplit("```", 1)[0]
+            try:
+                conteudo_json = json.loads(raw)
+            except json.JSONDecodeError:
+                conteudo_json = {
+                    "eventos": eventos,
+                    "inconsistencias": [],
+                    "periodo_total": {"inicio": None, "fim": None, "duracao_aproximada": "desconhecida"},
+                    "confianca": 0.65,
+                }
 
     else:
         # Fluxo normal: direto ou hierárquico
@@ -748,7 +984,7 @@ async def gerar_analise(
                 "tipo_evento":    ev.get("tipo", "outro"),
                 "descricao":      ev.get("descricao", ""),
                 "relevancia":     ev.get("relevancia", "media"),
-                "fonte":          "ia",
+                "fonte":          ev.get("fonte_peca") or "ia",
                 "validado":       False,
             })
         if cron_rows:
