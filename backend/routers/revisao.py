@@ -85,6 +85,17 @@ async def atualizar_tarefa(tarefa_id: uuid.UUID, body: TarefaUpdate):
     return upd.data[0]
 
 
+@router.delete("/tarefas/{tarefa_id}", status_code=204)
+async def deletar_tarefa(tarefa_id: uuid.UUID):
+    sb = get_supabase()
+    result = await sb_run(
+        lambda: sb.table("tarefas_revisao").delete().eq("id", str(tarefa_id)).execute()
+    )
+    if not result.data:
+        raise HTTPException(404, "Tarefa não encontrada")
+    await audit_svc.registrar("deletar", "tarefa", tarefa_id, usuario_id=DEFAULT_USER)
+
+
 @router.get("/resumo")
 async def resumo_revisao():
     sb = get_supabase()

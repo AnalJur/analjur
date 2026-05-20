@@ -261,6 +261,8 @@ export const api = {
         method: "PATCH",
         body: JSON.stringify(body),
       }),
+    deletar: (tarefaId: string) =>
+      req<void>(`/revisao/tarefas/${tarefaId}`, { method: "DELETE" }),
     resumo: () =>
       req<{ status: string; prioridade: string; total: number }[]>("/revisao/resumo"),
   },

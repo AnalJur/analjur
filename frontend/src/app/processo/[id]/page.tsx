@@ -945,7 +945,22 @@ function AbaRevisao({ processoId, onRefreshProcesso }: { processoId: string; onR
   const [tarefas, setTarefas] = useState<TarefaRevisao[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalTarefa, setModalTarefa] = useState<TarefaRevisao | null>(null);
+  const [deletando, setDeletando] = useState<string | null>(null);
   const [busca, setBusca] = useState("");
+
+  async function handleDeletar(id: string, titulo: string) {
+    if (!confirm(`Excluir a tarefa "${titulo}"?`)) return;
+    setDeletando(id);
+    try {
+      await api.revisao.deletar(id);
+      setTarefas(prev => prev.filter(t => t.id !== id));
+      onRefreshProcesso();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Erro ao excluir");
+    } finally {
+      setDeletando(null);
+    }
+  }
 
   useEffect(() => {
     api.revisao.tarefas(undefined, processoId).then(setTarefas).finally(() => setLoading(false));
@@ -990,21 +1005,28 @@ function AbaRevisao({ processoId, onRefreshProcesso }: { processoId: string; onR
                 {t.descricao && <p className="text-xs text-muted mt-1 line-clamp-2">{t.descricao}</p>}
                 {t.deadline && <p className="text-xs text-orange-500 mt-1">Prazo: {fmtData(t.deadline)}</p>}
               </div>
-              {t.status === "pendente" && (
-                <div className="flex gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
-                  <Btn variant="green" onClick={async () => {
-                    const upd = await api.revisao.atualizar(t.id, { status: "aprovado" });
-                    setTarefas(prev => prev.map(x => x.id === t.id ? upd : x));
-                    onRefreshProcesso();
-                  }}>Aprovar</Btn>
-                  <Btn variant="danger" onClick={async () => {
-                    const c = prompt("Comentário:") ?? "";
-                    const upd = await api.revisao.atualizar(t.id, { status: "rejeitado", comentario: c });
-                    setTarefas(prev => prev.map(x => x.id === t.id ? upd : x));
-                    onRefreshProcesso();
-                  }}>Rejeitar</Btn>
-                </div>
-              )}
+              <div className="flex gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                {t.status === "pendente" && (
+                  <>
+                    <Btn variant="green" onClick={async () => {
+                      const upd = await api.revisao.atualizar(t.id, { status: "aprovado" });
+                      setTarefas(prev => prev.map(x => x.id === t.id ? upd : x));
+                      onRefreshProcesso();
+                    }}>Aprovar</Btn>
+                    <Btn variant="danger" onClick={async () => {
+                      const c = prompt("Comentário:") ?? "";
+                      const upd = await api.revisao.atualizar(t.id, { status: "rejeitado", comentario: c });
+                      setTarefas(prev => prev.map(x => x.id === t.id ? upd : x));
+                      onRefreshProcesso();
+                    }}>Rejeitar</Btn>
+                  </>
+                )}
+                <Btn variant="danger"
+                  onClick={() => handleDeletar(t.id, t.titulo)}
+                  disabled={deletando === t.id}>
+                  {deletando === t.id ? "…" : "Excluir"}
+                </Btn>
+              </div>
             </div>
           </div>
         ))}
