@@ -22,6 +22,7 @@ class ProcessoUpdate(BaseModel):
     assunto:        Optional[str] = None
     status:         Optional[str] = None
     responsavel_id: Optional[uuid.UUID] = None
+    responsavel:    Optional[str] = None   # texto livre; armazenado em metadados["responsavel"]
     tags:           Optional[list[str]] = None
     metadados:      Optional[dict] = None
 

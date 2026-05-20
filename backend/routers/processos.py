@@ -31,7 +31,12 @@ async def listar_processos(status: Optional[str] = Query(None)):
     if status:
         q = q.eq("status", status)
     result = await sb_run(q.execute)
-    return result.data
+    # Fallback responsavel via metadados para processos sem responsavel_id
+    processos = result.data or []
+    for p in processos:
+        if not p.get("responsavel"):
+            p["responsavel"] = (p.get("metadados") or {}).get("responsavel")
+    return processos
 
 
 @router.post("", response_model=ProcessoOut, status_code=201)
@@ -64,7 +69,11 @@ async def obter_processo(processo_id: uuid.UUID):
     )
     if not result.data:
         raise HTTPException(404, "Processo não encontrado")
-    return result.data[0]
+    p = result.data[0]
+    # Fallback: responsavel salvo em metadados (texto livre)
+    if not p.get("responsavel"):
+        p["responsavel"] = (p.get("metadados") or {}).get("responsavel")
+    return p
 
 
 @router.patch("/{processo_id}", response_model=ProcessoOut)
@@ -78,6 +87,20 @@ async def atualizar_processo(processo_id: uuid.UUID, body: ProcessoUpdate):
     if "responsavel_id" in dados and dados["responsavel_id"]:
         dados["responsavel_id"] = str(dados["responsavel_id"])
 
+    # responsavel como texto livre → merge em metadados["responsavel"]
+    responsavel_nome: Optional[str] = dados.pop("responsavel", None)
+    if responsavel_nome is not None:
+        curr = await sb_run(
+            lambda: sb.table("processos")
+            .select("metadados")
+            .eq("id", str(processo_id))
+            .limit(1)
+            .execute()
+        )
+        meta = (curr.data[0].get("metadados") or {}) if curr.data else {}
+        meta["responsavel"] = responsavel_nome
+        dados["metadados"] = meta
+
     upd = await sb_run(
         lambda: sb.table("processos").update(dados).eq("id", str(processo_id)).execute()
     )
@@ -90,7 +113,13 @@ async def atualizar_processo(processo_id: uuid.UUID, body: ProcessoUpdate):
     view = await sb_run(
         lambda: sb.table("v_processos").select("*").eq("id", str(processo_id)).limit(1).execute()
     )
-    return view.data[0]
+    resultado = view.data[0]
+
+    # Se a view não retorna responsavel (join nulo), usa o valor de metadados
+    if not resultado.get("responsavel") and responsavel_nome:
+        resultado["responsavel"] = responsavel_nome
+
+    return resultado
 
 
 @router.delete("/{processo_id}", status_code=204)

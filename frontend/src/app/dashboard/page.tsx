@@ -191,34 +191,38 @@ export default function DashboardPage() {
         <TopBar title="Dashboard" subtitle="Visão geral dos processos" />
 
         <main className="flex-1 p-8 space-y-8">
-          {/* Métricas principais */}
+          {/* Métricas principais — clicáveis */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <StatCard
               label="Processos"
               value={loading ? "—" : (admin?.total_processos ?? processos.length)}
               icon={<Icon d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />}
+              onClick={() => document.getElementById("tabela-processos")?.scrollIntoView({ behavior: "smooth" })}
             />
             <StatCard
               label="Documentos processados"
               value={loading ? "—" : (admin?.total_documentos ?? "—")}
               icon={<Icon d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />}
+              href="/admin"
             />
             <StatCard
               label="Tarefas pendentes"
               value={loading ? "—" : (admin?.tarefas_pendentes ?? "—")}
               icon={<Icon d="M9 11l3 3L22 4" />}
               accent={admin?.tarefas_pendentes ? admin.tarefas_pendentes > 0 : false}
+              href="/revisao"
             />
             <StatCard
               label="Análises p/ revisão"
               value={loading ? "—" : (admin?.analises_pendentes_revisao ?? "—")}
               icon={<Icon d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />}
               accent={admin?.analises_pendentes_revisao ? admin.analises_pendentes_revisao > 0 : false}
+              href="/revisao"
             />
           </div>
 
           {/* Tabela de processos */}
-          <div className="bg-surface rounded-xl shadow-sm overflow-hidden">
+          <div id="tabela-processos" className="bg-surface rounded-xl shadow-sm overflow-hidden">
             <div className="px-6 py-4 border-b border-border flex items-center justify-between gap-4 flex-wrap">
               <h2 className="text-base font-semibold text-text-main">Processos</h2>
               <div className="flex items-center gap-3">
