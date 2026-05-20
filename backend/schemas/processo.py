@@ -87,14 +87,23 @@ class DocumentoOut(BaseModel):
 
 # ── Peça ──────────────────────────────────────────────────────────────────
 
+class PecaUpdate(BaseModel):
+    tipo_peca:    Optional[str] = None
+    conteudo_texto: Optional[str] = None
+    resumo:       Optional[str] = None
+    autor:        Optional[str] = None
+
+
 class PecaOut(BaseModel):
     id:                     uuid.UUID
+    documento_id:           Optional[uuid.UUID] = None
     tipo_peca:              str
     pagina_inicio:          int = 1
     pagina_fim:             int = 1
     data_documento:         Optional[date] = None
     autor:                  Optional[str] = None
     resumo:                 Optional[str] = None
+    conteudo_texto:         Optional[str] = None
     confianca_classificacao: Optional[float] = None
     created_at:             datetime
 

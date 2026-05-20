@@ -1,7 +1,7 @@
 from .processo import (
     ProcessoCreate, ProcessoUpdate, ProcessoOut,
     ParteCreate, ParteOut,
-    DocumentoOut, PecaOut,
+    DocumentoOut, PecaOut, PecaUpdate,
     CronologiaCreate, CronologiaUpdate, CronologiaOut,
     SnapshotOut,
     AnaliseSolicitacao, AnaliseOut,

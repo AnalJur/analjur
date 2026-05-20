@@ -7,6 +7,7 @@ from ..database import get_supabase, sb_run
 from ..schemas import (
     ProcessoCreate, ProcessoUpdate, ProcessoOut,
     ParteCreate, ParteOut,
+    PecaOut,
     CronologiaCreate, CronologiaUpdate, CronologiaOut,
     SnapshotOut,
 )
@@ -158,6 +159,22 @@ async def adicionar_parte(processo_id: uuid.UUID, body: ParteCreate):
     }
     result = await sb_run(lambda: sb.table("partes").insert(parte_data).execute())
     return result.data[0]
+
+
+# ── Peças (nível processo) ────────────────────────────────────────────────
+
+@router.get("/{processo_id}/pecas", response_model=list[PecaOut])
+async def listar_pecas_processo(processo_id: uuid.UUID):
+    """Retorna todas as peças de todos os documentos do processo, com conteúdo."""
+    sb = get_supabase()
+    result = await sb_run(
+        lambda: sb.table("pecas")
+        .select("id,documento_id,tipo_peca,pagina_inicio,pagina_fim,data_documento,autor,resumo,conteudo_texto,confianca_classificacao,created_at")
+        .eq("processo_id", str(processo_id))
+        .order("pagina_inicio", desc=False)
+        .execute()
+    )
+    return result.data or []
 
 
 # ── Cronologia ────────────────────────────────────────────────────────────

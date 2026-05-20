@@ -1017,7 +1017,60 @@ async def gerar_analise(
     return analise
 
 
-# ── Chat ──────────────────────────────────────────────────────────────────────
+# ── Chat (versão rápida) ───────────────────────────────────────────────────────
+#
+# Estratégia: contexto inteligente truncado → Haiku → resposta em segundos.
+# Evita re-sumarizar tudo a cada mensagem (era a causa dos 3+ minutos).
+#
+# Prioridade de tokens:
+#   1. Peças críticas (sentença, acórdão, inicial, contestação): até 12 K tok cada
+#   2. Demais peças: até 1,5 K tok cada (head + tail para não perder assinatura)
+# Limite total: 80 K tokens de contexto.
+
+MAX_CHAT_CONTEXT  = 80_000
+CHAT_PECA_PREMIUM = 12_000
+CHAT_PECA_NORMAL  = 1_500
+
+
+def _montar_contexto_chat(pecas: list[dict]) -> str:
+    """
+    Contexto compacto para chat — sem chamadas externas, sem sumarização.
+    Peças importantes: texto até CHAT_PECA_PREMIUM tokens.
+    Demais: head + tail truncados.
+    """
+    tokens_usados = 0
+    partes: list[str] = []
+
+    ordenadas = sorted(
+        pecas,
+        key=lambda p: (0 if p.get("tipo_peca") in PECAS_PRIORITARIAS else 1, p.get("pagina_inicio", 0))
+    )
+
+    for p in ordenadas:
+        if tokens_usados >= MAX_CHAT_CONTEXT:
+            break
+        tipo  = p.get("tipo_peca", "outro").upper()
+        pags  = f"pag. {p.get('pagina_inicio')}-{p.get('pagina_fim')}"
+        texto = (p.get("conteudo_texto") or "").strip()
+        if not texto:
+            continue
+        limite    = CHAT_PECA_PREMIUM if p.get("tipo_peca") in PECAS_PRIORITARIAS else CHAT_PECA_NORMAL
+        disponivel = MAX_CHAT_CONTEXT - tokens_usados
+        limite    = min(limite, disponivel)
+        enc_texto = _enc.encode(texto)
+        if len(enc_texto) <= limite:
+            trecho = texto
+        else:
+            metade = limite // 2
+            inicio = _enc.decode(enc_texto[:metade])
+            fim    = _enc.decode(enc_texto[-metade:])
+            trecho = inicio + "\n[... trecho omitido ...]\n" + fim
+        partes.append(f"=== {tipo} ({pags}) ===\n{trecho}")
+        tokens_usados += _contar_tokens(trecho)
+
+    logger.info(f"Chat contexto: {tokens_usados:,} tokens, {len(partes)} pecas")
+    return "\n\n".join(partes)
+
 
 async def chat_processo(
     processo_id: uuid.UUID,
@@ -1031,26 +1084,29 @@ async def chat_processo(
 
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
 
-    total_tokens = sum(_contar_tokens(p.get("conteudo_texto") or "") for p in pecas)
-    if total_tokens <= MAX_TOKENS_DIRECT:
-        contexto = _montar_contexto_direto(pecas)
-    else:
-        contexto = await _montar_contexto_hierarquico(pecas, client)
+    # Contexto compacto — sem chamadas de API externas, imediato
+    contexto = _montar_contexto_chat(pecas)
 
-    system  = SYSTEM_BASE + f"\n\nCONTEXTO DO PROCESSO:\n\n{contexto}"
-    ultima  = mensagens[-1]["content"] if mensagens else ""
+    system_chat = (
+        SYSTEM_BASE
+        + "\n\nCONTEXTO DO PROCESSO (trechos extensos foram truncados — peca detalhes se necessario):\n\n"
+        + contexto
+    )
 
+    ultima = mensagens[-1]["content"] if mensagens else ""
+
+    # Haiku: 5-10x mais rapido que Sonnet para Q&A sobre contexto fixo
     msg = await _claude_async(
         client,
-        model=settings.llm_model,
-        max_tokens=2048,
-        system=system,
+        model="claude-haiku-4-5-20251001",
+        max_tokens=1024,
+        system=system_chat,
         messages=[{"role": "user", "content": ultima}],
     )
 
     fontes = [
         {"tipo_peca": p.get("tipo_peca"), "paginas": f"{p.get('pagina_inicio')}-{p.get('pagina_fim')}"}
-        for p in pecas
+        for p in pecas[:20]
     ]
     tokens = msg.usage.input_tokens + msg.usage.output_tokens
     return msg.content[0].text.strip(), fontes, tokens

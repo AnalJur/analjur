@@ -55,12 +55,14 @@ export interface Documento {
 
 export interface Peca {
   id: string;
+  documento_id?: string;
   tipo_peca: string;
   pagina_inicio: number;
   pagina_fim: number;
   data_documento?: string;
   autor?: string;
   resumo?: string;
+  conteudo_texto?: string;
   confianca_classificacao?: number;
   created_at: string;
 }
@@ -155,6 +157,7 @@ export const api = {
     atualizar: (id: string, body: Partial<Processo>) =>
       req<Processo>(`/processos/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
     deletar: (id: string) => req<void>(`/processos/${id}`, { method: "DELETE" }),
+    pecas: (processoId: string) => req<Peca[]>(`/processos/${processoId}/pecas`),
   },
 
   documentos: {
@@ -181,6 +184,10 @@ export const api = {
       req<void>(`/processos/${processoId}/documentos/${docId}`, { method: "DELETE" }),
     pecas: (processoId: string, docId: string) =>
       req<Peca[]>(`/processos/${processoId}/documentos/${docId}/pecas`),
+    atualizarPeca: (processoId: string, docId: string, pecaId: string, body: { tipo_peca?: string; conteudo_texto?: string; resumo?: string; autor?: string }) =>
+      req<Peca>(`/processos/${processoId}/documentos/${docId}/pecas/${pecaId}`, { method: "PATCH", body: JSON.stringify(body) }),
+    deletarPeca: (processoId: string, docId: string, pecaId: string) =>
+      req<void>(`/processos/${processoId}/documentos/${docId}/pecas/${pecaId}`, { method: "DELETE" }),
   },
 
   cronologia: {

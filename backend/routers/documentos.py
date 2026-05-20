@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, BackgroundTasks, HTTPException, UploadFile, File
 
 from ..database import get_supabase, sb_run
-from ..schemas import DocumentoOut, PecaOut
+from ..schemas import DocumentoOut, PecaOut, PecaUpdate
 from ..services import ingestao, audit_svc, worker
 from ..config import get_settings
 
@@ -133,6 +133,38 @@ async def listar_pecas_documento(processo_id: uuid.UUID, doc_id: uuid.UUID):
         .execute()
     )
     return result.data
+
+
+@router.patch("/{doc_id}/pecas/{peca_id}", response_model=PecaOut)
+async def atualizar_peca(processo_id: uuid.UUID, doc_id: uuid.UUID, peca_id: uuid.UUID, body: PecaUpdate):
+    sb = get_supabase()
+    dados = body.model_dump(exclude_none=True)
+    if not dados:
+        raise HTTPException(400, "Nenhum campo para atualizar")
+    result = await sb_run(
+        lambda: sb.table("pecas").update(dados)
+        .eq("id", str(peca_id))
+        .eq("documento_id", str(doc_id))
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(404, "Peça não encontrada")
+    await audit_svc.registrar("atualizar", "peca", peca_id, dados_depois=dados, usuario_id=DEFAULT_USER)
+    return result.data[0]
+
+
+@router.delete("/{doc_id}/pecas/{peca_id}", status_code=204)
+async def deletar_peca(processo_id: uuid.UUID, doc_id: uuid.UUID, peca_id: uuid.UUID):
+    sb = get_supabase()
+    result = await sb_run(
+        lambda: sb.table("pecas").delete()
+        .eq("id", str(peca_id))
+        .eq("documento_id", str(doc_id))
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(404, "Peça não encontrada")
+    await audit_svc.registrar("deletar", "peca", peca_id, usuario_id=DEFAULT_USER)
 
 
 @router.get("/{doc_id}/status")

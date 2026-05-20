@@ -16,6 +16,12 @@ function fmtData(s?: string | null) {
   return new Date(s).toLocaleDateString("pt-BR");
 }
 
+function fmtDataHora(s?: string | null) {
+  if (!s) return "—";
+  const d = new Date(s);
+  return d.toLocaleDateString("pt-BR") + " " + d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+
 function formatBytes(b?: number) {
   if (!b) return "";
   if (b < 1024 * 1024) return ` · ${(b / 1024).toFixed(0)} KB`;
@@ -118,6 +124,7 @@ const TABS = [
   { id: "minutas",    label: "Minutas" },
   { id: "snapshots",  label: "Versões" },
   { id: "chat",       label: "Chat IA" },
+  { id: "atividade",  label: "⏱ Atividade" },
 ] as const;
 type Tab = (typeof TABS)[number]["id"];
 
@@ -378,6 +385,19 @@ function ModalEvento({ inicial, onSalvar, onFechar, loading }: {
   );
 }
 
+const PASSOS_CRON = [
+  "Carregando peças do processo…",
+  "Analisando petição inicial…",
+  "Processando citações e intimações…",
+  "Extraindo despachos e decisões…",
+  "Analisando recursos e acórdãos…",
+  "Processando sentenças…",
+  "Identificando embargos e agravos…",
+  "Consolidando ordem cronológica…",
+  "Validando lógica processual…",
+  "Salvando eventos…",
+];
+
 function AbaCronologia({ processoId }: { processoId: string }) {
   const [eventos, setEventos] = useState<EventoCronologia[]>([]);
   const [loading, setLoading] = useState(true);
@@ -385,10 +405,47 @@ function AbaCronologia({ processoId }: { processoId: string }) {
   const [salvando, setSalvando] = useState(false);
   const [deletando, setDeletando] = useState<string | null>(null);
   const [busca, setBusca] = useState("");
+  const [gerandoCron, setGerandoCron] = useState(false);
+  const [passoCron, setPassoCron] = useState(0);
+  const [progresso, setProgresso] = useState(0);
 
   useEffect(() => {
     api.cronologia.listar(processoId).then(setEventos).finally(() => setLoading(false));
   }, [processoId]);
+
+  async function gerarCronologia() {
+    if (!confirm("Gerar cronologia com IA irá analisar todas as peças do processo.\nEventos existentes serão mantidos e novos serão adicionados.\n\nContinuar?")) return;
+    setGerandoCron(true);
+    setPassoCron(0);
+    setProgresso(0);
+
+    // Animação de progresso enquanto a API trabalha
+    const intervalo = setInterval(() => {
+      setPassoCron(prev => {
+        const prox = prev < PASSOS_CRON.length - 1 ? prev + 1 : prev;
+        setProgresso(Math.round((prox / (PASSOS_CRON.length - 1)) * 90)); // vai até 90%
+        return prox;
+      });
+    }, 4500); // avança um passo a cada ~4,5s
+
+    try {
+      await api.analises.solicitar(processoId, "cronologia");
+      clearInterval(intervalo);
+      setProgresso(100);
+      setPassoCron(PASSOS_CRON.length - 1);
+      // Recarrega eventos após geração
+      await new Promise(r => setTimeout(r, 800));
+      const evs = await api.cronologia.listar(processoId);
+      setEventos(evs);
+    } catch (e) {
+      clearInterval(intervalo);
+      alert(e instanceof Error ? e.message : "Erro ao gerar cronologia");
+    } finally {
+      setGerandoCron(false);
+      setPassoCron(0);
+      setProgresso(0);
+    }
+  }
 
   async function salvarEvento(form: EventoForm) {
     setSalvando(true);
@@ -445,11 +502,47 @@ function AbaCronologia({ processoId }: { processoId: string }) {
 
   return (
     <>
+      {/* Painel de geração */}
+      <div className={`rounded-xl border mb-4 p-4 transition-all ${gerandoCron ? "border-gold bg-gold/5" : "border-border bg-gray-50"}`}>
+        {gerandoCron ? (
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <Spinner />
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-text-main">{PASSOS_CRON[passoCron]}</p>
+                <p className="text-xs text-muted">Processando peça por peça para máxima precisão…</p>
+              </div>
+            </div>
+            <div className="w-full bg-border rounded-full h-2 overflow-hidden">
+              <div
+                className="bg-gold h-2 rounded-full transition-all duration-[4000ms] ease-linear"
+                style={{ width: `${progresso}%` }}
+              />
+            </div>
+            <p className="text-xs text-muted text-right">{progresso}%</p>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-semibold text-text-main">Gerar Cronologia com IA</p>
+              <p className="text-xs text-muted">
+                Extrai atos processuais peça por peça com validação de lógica processual.
+                {eventos.length > 0 && ` (${eventos.length} eventos já salvos)`}
+              </p>
+            </div>
+            <button onClick={gerarCronologia}
+              className="bg-gold text-navy font-semibold rounded-lg px-4 py-2 text-sm hover:bg-gold-light transition-all whitespace-nowrap flex-shrink-0">
+              🤖 Gerar com IA
+            </button>
+          </div>
+        )}
+      </div>
+
       <div className="flex items-center gap-3 mb-4">
         <div className="flex-1"><SearchBar value={busca} onChange={setBusca} placeholder="Buscar eventos…" /></div>
         <button onClick={() => setModalEvento({ form: EVENTO_FORM_VAZIO })}
-          className="bg-gold text-navy font-semibold rounded-lg px-4 py-2 text-sm hover:bg-gold-light transition-all whitespace-nowrap">
-          + Novo Evento
+          className="border border-border text-text-main font-semibold rounded-lg px-4 py-2 text-sm hover:border-gold hover:text-gold transition-all whitespace-nowrap">
+          + Manual
         </button>
       </div>
 
@@ -1112,7 +1205,7 @@ function AbaAnalises({ processoId, onRefreshProcesso }: { processoId: string; on
                   )}
                 </div>
                 <p className="text-xs text-muted mt-0.5">
-                  {fmtData(a.created_at)} · {a.modelo_ia} · {a.tokens_input}+{a.tokens_output} tokens
+                  {fmtDataHora(a.created_at)} · {a.modelo_ia} · {(a.tokens_input ?? 0)+(a.tokens_output ?? 0)} tokens
                 </p>
               </div>
               <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
@@ -1650,7 +1743,8 @@ function AbaSnapshots({ processoId }: { processoId: string }) {
 // ════════════════════════════════════════════════════════════════════════════
 
 function AbaChat({ processoId }: { processoId: string }) {
-  const [mensagens, setMensagens] = useState<{ role: "user" | "assistant"; content: string; fontes?: {tipo_peca?: string; pagina?: number}[] }[]>([]);
+  type Msg = { role: "user" | "assistant"; content: string; seg?: number; fontes?: { tipo_peca?: string; paginas?: string }[] };
+  const [mensagens, setMensagens] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [enviando, setEnviando] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -1666,53 +1760,94 @@ function AbaChat({ processoId }: { processoId: string }) {
     setInput("");
     setMensagens(prev => [...prev, { role: "user", content: texto }]);
     setEnviando(true);
+    const t0 = Date.now();
     try {
       const hist = mensagens.map(m => ({ role: m.role, content: m.content }));
       hist.push({ role: "user", content: texto });
       const r = await api.analises.chat(processoId, hist);
-      setMensagens(prev => [...prev, { role: "assistant", content: r.resposta, fontes: r.fontes as {tipo_peca?: string; pagina?: number}[] }]);
+      const seg = Math.round((Date.now() - t0) / 1000);
+      setMensagens(prev => [...prev, {
+        role: "assistant",
+        content: r.resposta,
+        seg,
+        fontes: r.fontes as { tipo_peca?: string; paginas?: string }[],
+      }]);
     } catch (err) {
-      setMensagens(prev => [...prev, { role: "assistant", content: `Erro: ${err instanceof Error ? err.message : "falha na API"}` }]);
+      setMensagens(prev => [...prev, {
+        role: "assistant",
+        content: `Erro: ${err instanceof Error ? err.message : "falha na API"}`,
+        seg: Math.round((Date.now() - t0) / 1000),
+      }]);
     } finally {
       setEnviando(false);
     }
   }
 
+  const sugestoes = [
+    "Qual é o estado atual do processo?",
+    "A quem foi destinado o último prazo?",
+    "Quais são as partes do processo?",
+    "Há alguma decisão recente pendente de recurso?",
+  ];
+
   return (
-    <div className="flex flex-col h-[560px]">
+    <div className="flex flex-col h-[600px]">
+      <div className="flex items-center gap-2 mb-3 pb-3 border-b border-border flex-shrink-0">
+        <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-semibold">● Haiku — resposta rápida</span>
+        <span className="text-xs text-muted">Perguntas diretas respondem em segundos</span>
+      </div>
+
       <div className="flex-1 overflow-y-auto space-y-4 pb-4">
         {!mensagens.length && (
-          <div className="flex flex-col items-center justify-center h-full text-center text-muted">
-            <div className="w-14 h-14 rounded-2xl bg-gold/10 flex items-center justify-center mb-3">
+          <div className="flex flex-col items-center justify-center h-full text-center text-muted gap-4">
+            <div className="w-14 h-14 rounded-2xl bg-gold/10 flex items-center justify-center">
               <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gold">
                 <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
               </svg>
             </div>
-            <p className="text-sm font-semibold text-text-main mb-1">Chat com o Processo</p>
-            <p className="text-xs max-w-xs">Faça perguntas sobre os documentos. A IA responde com base nos textos indexados.</p>
+            <div>
+              <p className="text-sm font-semibold text-text-main mb-1">Chat com o Processo</p>
+              <p className="text-xs max-w-xs">Faça perguntas sobre os documentos. Respostas em segundos.</p>
+            </div>
+            <div className="grid grid-cols-2 gap-2 w-full max-w-sm">
+              {sugestoes.map((s, i) => (
+                <button key={i} onClick={() => { setInput(s); }}
+                  className="text-left text-xs px-3 py-2 rounded-lg border border-border hover:border-gold/50 hover:bg-gold/5 text-muted hover:text-text-main transition-all">
+                  {s}
+                </button>
+              ))}
+            </div>
           </div>
         )}
         {mensagens.map((m, i) => (
           <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-            <div className={`max-w-[80%] rounded-xl px-4 py-3 text-sm ${m.role === "user" ? "bg-navy text-white" : "bg-surface border border-border text-text-main"}`}>
+            <div className={`max-w-[85%] rounded-xl px-4 py-3 text-sm ${m.role === "user" ? "bg-navy text-white" : "bg-surface border border-border text-text-main"}`}>
               <p className="whitespace-pre-wrap">{m.content}</p>
-              {m.fontes && m.fontes.length > 0 && (
-                <p className="text-xs opacity-60 mt-2">Fontes: {m.fontes.slice(0,3).map(f => `${f.tipo_peca ?? "?"} p.${f.pagina ?? "?"}`).join(", ")}</p>
+              {m.role === "assistant" && (
+                <p className="text-xs opacity-50 mt-2 flex items-center gap-2">
+                  {m.seg !== undefined && <span>⏱ {m.seg}s</span>}
+                  {m.fontes && m.fontes.length > 0 && (
+                    <span>Fontes: {m.fontes.slice(0,3).map(f => `${(f.tipo_peca ?? "?").replace(/_/g," ")} p.${f.paginas ?? "?"}`).join(", ")}</span>
+                  )}
+                </p>
               )}
             </div>
           </div>
         ))}
         {enviando && (
-          <div className="flex justify-start">
-            <div className="bg-surface border border-border rounded-xl px-4 py-3"><Spinner /></div>
+          <div className="flex justify-start items-center gap-2">
+            <div className="bg-surface border border-border rounded-xl px-4 py-3 flex items-center gap-2">
+              <Spinner sm />
+              <span className="text-xs text-muted">Pensando…</span>
+            </div>
           </div>
         )}
         <div ref={bottomRef} />
       </div>
-      <form onSubmit={enviar} className="flex gap-2 pt-3 border-t border-border">
+      <form onSubmit={enviar} className="flex gap-2 pt-3 border-t border-border flex-shrink-0">
         <input value={input} onChange={e => setInput(e.target.value)}
           className="flex-1 border border-border rounded-lg px-3 py-2.5 text-sm bg-bg text-text-main placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-gold/40"
-          placeholder="Pergunta sobre o processo…" />
+          placeholder="Pergunta sobre o processo… (ex: qual o último prazo?)" />
         <button type="submit" disabled={enviando || !input.trim()}
           className="bg-gold text-navy font-bold rounded-lg px-4 py-2.5 text-sm hover:bg-gold-light transition-all disabled:opacity-50">
           →
@@ -1726,45 +1861,178 @@ function AbaChat({ processoId }: { processoId: string }) {
 // ABA: PEÇAS
 // ════════════════════════════════════════════════════════════════════════════
 
+const TIPO_PECA_OPTIONS = [
+  "peticao_inicial","contestacao","replica","sentenca","acordao","despacho",
+  "decisao_interlocutoria","recurso","embargos_declaracao","agravo",
+  "contrarrazoes","certidao","publicacao","intimacao","citacao",
+  "laudo_pericial","procuracao","contrato","cumprimento_sentenca","outro",
+];
+
+const TIPO_MAP: Record<string, string> = {
+  peticao_inicial:         "bg-blue-100 text-blue-700",
+  contestacao:             "bg-red-100 text-red-700",
+  replica:                 "bg-purple-100 text-purple-700",
+  sentenca:                "bg-green-100 text-green-700",
+  acordao:                 "bg-emerald-100 text-emerald-800",
+  despacho:                "bg-gray-100 text-gray-600",
+  decisao_interlocutoria:  "bg-orange-100 text-orange-700",
+  recurso:                 "bg-yellow-100 text-yellow-700",
+  embargos_declaracao:     "bg-amber-100 text-amber-700",
+  agravo:                  "bg-amber-100 text-amber-800",
+  contrarrazoes:           "bg-yellow-50 text-yellow-600",
+  certidao:                "bg-slate-100 text-slate-600",
+  publicacao:              "bg-slate-100 text-slate-500",
+  intimacao:               "bg-sky-100 text-sky-600",
+  citacao:                 "bg-sky-100 text-sky-700",
+  laudo_pericial:          "bg-teal-100 text-teal-700",
+  procuracao:              "bg-indigo-100 text-indigo-600",
+  contrato:                "bg-indigo-100 text-indigo-700",
+  cumprimento_sentenca:    "bg-pink-100 text-pink-700",
+  outro:                   "bg-gray-100 text-gray-500",
+};
+
+function ModalPeca({ peca, processoId, onUpdate, onDelete, onClose }: {
+  peca: Peca; processoId: string;
+  onUpdate: (p: Peca) => void;
+  onDelete: (id: string) => void;
+  onClose: () => void;
+}) {
+  const [editando, setEditando] = useState(false);
+  const [tipo, setTipo] = useState(peca.tipo_peca);
+  const [conteudo, setConteudo] = useState(peca.conteudo_texto ?? "");
+  const [resumo, setResumo] = useState(peca.resumo ?? "");
+  const [salvando, setSalvando] = useState(false);
+  const [deletando, setDeletando] = useState(false);
+
+  async function salvar() {
+    if (!peca.documento_id) return;
+    setSalvando(true);
+    try {
+      const upd = await api.documentos.atualizarPeca(processoId, peca.documento_id, peca.id, {
+        tipo_peca: tipo !== peca.tipo_peca ? tipo : undefined,
+        conteudo_texto: conteudo !== peca.conteudo_texto ? conteudo : undefined,
+        resumo: resumo !== peca.resumo ? resumo : undefined,
+      });
+      onUpdate({ ...peca, ...upd });
+      setEditando(false);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Erro ao salvar");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  async function deletar() {
+    if (!peca.documento_id) return;
+    if (!confirm(`Excluir peça "${peca.tipo_peca}" (pág. ${peca.pagina_inicio}–${peca.pagina_fim})?`)) return;
+    setDeletando(true);
+    try {
+      await api.documentos.deletarPeca(processoId, peca.documento_id, peca.id);
+      onDelete(peca.id);
+      onClose();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Erro ao excluir");
+    } finally {
+      setDeletando(false);
+    }
+  }
+
+  const chars = conteudo.length;
+  const palavras = conteudo.trim() ? conteudo.trim().split(/\s+/).length : 0;
+
+  return (
+    <Modal title={`${peca.tipo_peca.replace(/_/g," ").toUpperCase()} — pág. ${peca.pagina_inicio}–${peca.pagina_fim}`} onClose={onClose} wide>
+      <div className="space-y-4">
+        {/* Meta */}
+        <div className="flex flex-wrap gap-3 text-xs text-muted items-center">
+          <span className={`font-bold px-2 py-0.5 rounded-full ${TIPO_MAP[peca.tipo_peca] ?? "bg-gray-100 text-gray-500"}`}>
+            {peca.tipo_peca.replace(/_/g," ").toUpperCase()}
+          </span>
+          <span>pág. {peca.pagina_inicio}–{peca.pagina_fim} ({peca.pagina_fim - peca.pagina_inicio + 1} pág.)</span>
+          {peca.confianca_classificacao !== undefined && (
+            <span className={peca.confianca_classificacao >= 0.8 ? "text-green-600" : "text-orange-500"}>
+              {Math.round(peca.confianca_classificacao * 100)}% confiança IA
+            </span>
+          )}
+          {peca.autor && <span>✍ {peca.autor}</span>}
+          {peca.data_documento && <span>📅 {fmtData(String(peca.data_documento))}</span>}
+          <span>{palavras.toLocaleString("pt-BR")} palavras · {chars.toLocaleString("pt-BR")} chars</span>
+        </div>
+
+        {editando ? (
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-semibold text-muted mb-1">Tipo da peça</label>
+              <select value={tipo} onChange={e => setTipo(e.target.value)}
+                className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-bg text-text-main focus:outline-none focus:ring-2 focus:ring-gold/40">
+                {TIPO_PECA_OPTIONS.map(t => <option key={t} value={t}>{t.replace(/_/g," ")}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-muted mb-1">Resumo (opcional)</label>
+              <textarea value={resumo} onChange={e => setResumo(e.target.value)} rows={2}
+                className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-bg text-text-main focus:outline-none focus:ring-2 focus:ring-gold/40 resize-none" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-muted mb-1">Conteúdo extraído pela IA</label>
+              <textarea value={conteudo} onChange={e => setConteudo(e.target.value)} rows={14}
+                className="w-full border border-border rounded-lg px-3 py-2 text-xs font-mono bg-bg text-text-main focus:outline-none focus:ring-2 focus:ring-gold/40 resize-y" />
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Btn onClick={() => setEditando(false)}>Cancelar</Btn>
+              <button onClick={salvar} disabled={salvando}
+                className="bg-gold text-navy font-semibold rounded-lg px-4 py-2 text-sm hover:bg-gold-light transition-all disabled:opacity-50">
+                {salvando ? "Salvando…" : "Salvar"}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            {peca.resumo && (
+              <div className="bg-gold/5 rounded-lg border border-gold/20 p-3">
+                <p className="text-xs font-semibold text-gold uppercase tracking-wide mb-1">Resumo</p>
+                <p className="text-sm text-text-main">{peca.resumo}</p>
+              </div>
+            )}
+            <div>
+              <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-2">Conteúdo extraído</p>
+              <div className="bg-bg rounded-xl border border-border p-4 max-h-[50vh] overflow-y-auto">
+                {conteudo ? (
+                  <pre className="text-xs text-text-main whitespace-pre-wrap font-sans leading-relaxed">{conteudo}</pre>
+                ) : (
+                  <p className="text-xs text-muted italic">Sem conteúdo extraído para esta peça.</p>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center justify-between pt-2 border-t border-border">
+              <Btn variant="danger" onClick={deletar} disabled={deletando}>
+                {deletando ? "Excluindo…" : "🗑 Excluir peça"}
+              </Btn>
+              <button onClick={() => setEditando(true)}
+                className="bg-gold text-navy font-semibold rounded-lg px-4 py-2 text-sm hover:bg-gold-light transition-all">
+                ✏ Editar tipo / conteúdo
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 function AbaPecas({ processoId }: { processoId: string }) {
   const [pecas, setPecas] = useState<Peca[]>([]);
   const [loading, setLoading] = useState(true);
   const [busca, setBusca] = useState("");
   const [filtroTipo, setFiltroTipo] = useState("");
+  const [modalPeca, setModalPeca] = useState<Peca | null>(null);
 
   useEffect(() => {
-    // Busca todas as peças de todos os documentos do processo
-    api.documentos.listar(processoId).then(async docs => {
-      const todasPecas: Peca[] = [];
-      for (const doc of docs.filter(d => d.status === "processado")) {
-        try {
-          const ps = await api.documentos.pecas(processoId, doc.id);
-          todasPecas.push(...ps);
-        } catch { /* ignora */ }
-      }
-      // Ordena por página de início
-      todasPecas.sort((a, b) => (a.pagina_inicio ?? 0) - (b.pagina_inicio ?? 0));
-      setPecas(todasPecas);
-    }).finally(() => setLoading(false));
+    // Endpoint único no nível do processo — muito mais rápido que iterar documentos
+    api.processos.pecas(processoId)
+      .then(ps => setPecas(ps))
+      .finally(() => setLoading(false));
   }, [processoId]);
-
-  const tipoMap: Record<string, string> = {
-    peticao_inicial:          "bg-blue-100 text-blue-700",
-    contestacao:              "bg-red-100 text-red-700",
-    replica:                  "bg-purple-100 text-purple-700",
-    sentenca:                 "bg-green-100 text-green-700",
-    acordao:                  "bg-green-100 text-green-800",
-    despacho:                 "bg-gray-100 text-gray-600",
-    decisao_interlocutoria:   "bg-orange-100 text-orange-700",
-    recurso:                  "bg-yellow-100 text-yellow-700",
-    contrarrazoes:            "bg-yellow-50 text-yellow-600",
-    certidao:                 "bg-slate-100 text-slate-600",
-    publicacao:               "bg-slate-100 text-slate-500",
-    laudo_pericial:           "bg-teal-100 text-teal-700",
-    procuracao:               "bg-indigo-100 text-indigo-600",
-    contrato:                 "bg-indigo-100 text-indigo-700",
-    outros:                   "bg-gray-100 text-gray-500",
-  };
 
   const tipos = Array.from(new Set(pecas.map(p => p.tipo_peca))).sort();
 
@@ -1772,7 +2040,8 @@ function AbaPecas({ processoId }: { processoId: string }) {
     const matchBusca = !busca ||
       p.tipo_peca.toLowerCase().includes(busca.toLowerCase()) ||
       (p.resumo ?? "").toLowerCase().includes(busca.toLowerCase()) ||
-      (p.autor ?? "").toLowerCase().includes(busca.toLowerCase());
+      (p.autor ?? "").toLowerCase().includes(busca.toLowerCase()) ||
+      (p.conteudo_texto ?? "").toLowerCase().includes(busca.toLowerCase());
     const matchTipo = !filtroTipo || p.tipo_peca === filtroTipo;
     return matchBusca && matchTipo;
   });
@@ -1785,51 +2054,224 @@ function AbaPecas({ processoId }: { processoId: string }) {
   );
 
   return (
-    <div className="space-y-3">
-      {/* Filtros */}
-      <div className="flex gap-3 flex-wrap">
-        <div className="flex-1 min-w-[200px]">
-          <SearchBar value={busca} onChange={setBusca} placeholder="Buscar peças…" />
+    <>
+      <div className="space-y-3">
+        {/* Filtros */}
+        <div className="flex gap-3 flex-wrap">
+          <div className="flex-1 min-w-[200px]">
+            <SearchBar value={busca} onChange={setBusca} placeholder="Buscar em tipo, resumo, conteúdo…" />
+          </div>
+          <select value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)}
+            className="border border-border rounded-lg px-3 py-2 text-sm bg-bg text-text-main focus:outline-none focus:ring-2 focus:ring-gold/40">
+            <option value="">Todos ({pecas.length})</option>
+            {tipos.map(t => (
+              <option key={t} value={t}>{t.replace(/_/g," ")} ({pecas.filter(p => p.tipo_peca === t).length})</option>
+            ))}
+          </select>
         </div>
-        <select
-          value={filtroTipo}
-          onChange={e => setFiltroTipo(e.target.value)}
-          className="border border-border rounded-lg px-3 py-2 text-sm bg-bg text-text-main focus:outline-none focus:ring-2 focus:ring-gold/40"
-        >
-          <option value="">Todos os tipos ({pecas.length})</option>
-          {tipos.map(t => (
-            <option key={t} value={t}>
-              {t.replace(/_/g, " ")} ({pecas.filter(p => p.tipo_peca === t).length})
-            </option>
-          ))}
-        </select>
-      </div>
 
-      {/* Lista */}
-      {pecasFiltradas.map((p, i) => (
-        <div key={p.id ?? i} className="bg-bg rounded-xl border border-border p-4 hover:border-gold/30 transition-colors">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex-1 min-w-0">
-              <div className="flex flex-wrap items-center gap-2 mb-1">
-                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${tipoMap[p.tipo_peca] ?? "bg-gray-100 text-gray-500"}`}>
-                  {p.tipo_peca.replace(/_/g, " ").toUpperCase()}
-                </span>
-                <span className="text-xs text-muted font-mono">
-                  pág. {p.pagina_inicio}–{p.pagina_fim}
-                  {p.pagina_fim && p.pagina_inicio ? ` (${p.pagina_fim - p.pagina_inicio + 1} pág.)` : ""}
-                </span>
-                {p.data_documento && (
-                  <span className="text-xs text-muted">{fmtData(String(p.data_documento))}</span>
-                )}
-                {p.confianca_classificacao !== undefined && (
-                  <span className={`text-xs ${p.confianca_classificacao >= 0.8 ? "text-green-600" : "text-orange-500"}`}>
-                    {Math.round(p.confianca_classificacao * 100)}% conf.
+        <p className="text-xs text-muted">Clique em qualquer peça para ver o conteúdo extraído pela IA, editar ou excluir.</p>
+
+        {/* Lista */}
+        {pecasFiltradas.map((p, i) => (
+          <div key={p.id ?? i}
+            className="bg-bg rounded-xl border border-border p-4 hover:border-gold/50 hover:shadow-sm transition-all cursor-pointer"
+            onClick={() => setModalPeca(p)}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex flex-wrap items-center gap-2 mb-1">
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${TIPO_MAP[p.tipo_peca] ?? "bg-gray-100 text-gray-500"}`}>
+                    {p.tipo_peca.replace(/_/g," ").toUpperCase()}
                   </span>
+                  <span className="text-xs text-muted font-mono">
+                    pág. {p.pagina_inicio}–{p.pagina_fim}
+                    {` (${p.pagina_fim - p.pagina_inicio + 1} pág.)`}
+                  </span>
+                  {p.data_documento && <span className="text-xs text-muted">{fmtData(String(p.data_documento))}</span>}
+                  {p.confianca_classificacao !== undefined && (
+                    <span className={`text-xs font-semibold ${p.confianca_classificacao >= 0.8 ? "text-green-600" : "text-orange-500"}`}>
+                      {Math.round(p.confianca_classificacao * 100)}%
+                    </span>
+                  )}
+                  {p.conteudo_texto && (
+                    <span className="text-xs text-gold">● tem conteúdo</span>
+                  )}
+                </div>
+                {p.autor && <p className="text-xs text-muted">✍ {p.autor}</p>}
+                {p.resumo && <p className="text-xs text-muted mt-1 line-clamp-2">{p.resumo}</p>}
+                {!p.resumo && p.conteudo_texto && (
+                  <p className="text-xs text-muted mt-1 line-clamp-2 italic">{p.conteudo_texto.slice(0, 200)}</p>
                 )}
               </div>
-              {p.autor && <p className="text-xs text-muted">✍ {p.autor}</p>}
-              {p.resumo && <p className="text-xs text-muted mt-1 line-clamp-2">{p.resumo}</p>}
+              <span className="text-xs text-gold flex-shrink-0 mt-1">Ver →</span>
             </div>
+          </div>
+        ))}
+      </div>
+
+      {modalPeca && (
+        <ModalPeca
+          peca={modalPeca}
+          processoId={processoId}
+          onUpdate={upd => {
+            setPecas(prev => prev.map(p => p.id === upd.id ? upd : p));
+            setModalPeca(upd);
+          }}
+          onDelete={id => setPecas(prev => prev.filter(p => p.id !== id))}
+          onClose={() => setModalPeca(null)}
+        />
+      )}
+    </>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// ABA: ATIVIDADE (TIMESHEET)
+// ════════════════════════════════════════════════════════════════════════════
+
+function diffMin(a: string, b?: string | null) {
+  if (!b) return null;
+  return Math.round((new Date(b).getTime() - new Date(a).getTime()) / 60000);
+}
+
+function AbaAtividade({ processoId }: { processoId: string }) {
+  const [loading, setLoading] = useState(true);
+  const [itens, setItens] = useState<{ tipo: string; titulo: string; subtitulo?: string; at: string; durMin?: number | null; badge?: string; badgeCor?: string }[]>([]);
+
+  useEffect(() => {
+    Promise.all([
+      api.documentos.listar(processoId),
+      api.analises.listar(processoId),
+      api.revisao.tarefas(undefined, processoId),
+    ]).then(([docs, analises, tarefas]) => {
+      const lista: typeof itens = [];
+
+      docs.forEach(d => {
+        lista.push({
+          tipo: "📄 Upload",
+          titulo: d.nome_original,
+          subtitulo: d.total_paginas ? `${d.total_paginas} páginas · ${d.status}` : d.status,
+          at: d.uploaded_at,
+          badge: d.status,
+          badgeCor: d.status === "processado" ? "bg-green-100 text-green-700"
+            : d.status === "erro" ? "bg-red-100 text-red-700"
+            : "bg-yellow-100 text-yellow-700",
+        });
+        if (d.processado_at) {
+          lista.push({
+            tipo: "⚙ Processamento",
+            titulo: `Processamento de "${d.nome_original}"`,
+            subtitulo: d.ocr_utilizado ? "OCR aplicado" : "Extração direta",
+            at: d.processado_at,
+            durMin: diffMin(d.uploaded_at, d.processado_at),
+            badge: d.ocr_utilizado ? "OCR" : "direto",
+            badgeCor: "bg-blue-100 text-blue-700",
+          });
+        }
+      });
+
+      analises.forEach(a => {
+        const label = TIPOS_ANALISE.find(t => t.id === a.tipo)?.label ?? a.tipo.replace(/_/g," ");
+        lista.push({
+          tipo: "🤖 Análise IA",
+          titulo: label,
+          subtitulo: `${a.modelo_ia} · ${(a.tokens_input ?? 0) + (a.tokens_output ?? 0)} tokens · confiança ${Math.round((a.confianca ?? 0) * 100)}%`,
+          at: a.created_at,
+          badge: a.status_revisao,
+          badgeCor: a.status_revisao === "aprovada" ? "bg-green-100 text-green-700"
+            : a.status_revisao === "rejeitada" ? "bg-red-100 text-red-700"
+            : "bg-yellow-100 text-yellow-700",
+        });
+        if (a.revisado_at) {
+          lista.push({
+            tipo: a.status_revisao === "aprovada" ? "✅ Aprovação" : "❌ Rejeição",
+            titulo: `${a.status_revisao === "aprovada" ? "Aprovada" : "Rejeitada"}: ${label}`,
+            at: a.revisado_at,
+            durMin: diffMin(a.created_at, a.revisado_at),
+          });
+        }
+      });
+
+      tarefas.forEach(t => {
+        lista.push({
+          tipo: "📋 Tarefa",
+          titulo: t.titulo,
+          subtitulo: `${t.tipo} · ${t.prioridade}`,
+          at: t.created_at,
+          badge: t.status,
+          badgeCor: t.status === "aprovado" ? "bg-green-100 text-green-700"
+            : t.status === "rejeitado" ? "bg-red-100 text-red-700"
+            : "bg-yellow-100 text-yellow-700",
+        });
+      });
+
+      lista.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+      setItens(lista);
+    }).finally(() => setLoading(false));
+  }, [processoId]);
+
+  if (loading) return <div className="flex justify-center py-12"><Spinner /></div>;
+  if (!itens.length) return <div className="text-center py-16 text-muted text-sm">Nenhuma atividade registrada.</div>;
+
+  // Agrupa por dia
+  const porDia: Record<string, typeof itens> = {};
+  itens.forEach(item => {
+    const dia = new Date(item.at).toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long", year: "numeric" });
+    if (!porDia[dia]) porDia[dia] = [];
+    porDia[dia].push(item);
+  });
+
+  const totalAnalises = itens.filter(i => i.tipo.includes("Análise")).length;
+  const totalUploads = itens.filter(i => i.tipo.includes("Upload")).length;
+  const totalAprovacoes = itens.filter(i => i.tipo.includes("Aprovação")).length;
+
+  return (
+    <div className="space-y-6">
+      {/* Sumário */}
+      <div className="grid grid-cols-3 gap-3">
+        {[
+          { label: "Uploads", valor: totalUploads, icon: "📄" },
+          { label: "Análises IA", valor: totalAnalises, icon: "🤖" },
+          { label: "Aprovações", valor: totalAprovacoes, icon: "✅" },
+        ].map(c => (
+          <div key={c.label} className="bg-bg rounded-xl border border-border p-4 text-center">
+            <p className="text-2xl mb-1">{c.icon}</p>
+            <p className="text-xl font-bold text-text-main">{c.valor}</p>
+            <p className="text-xs text-muted">{c.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Timeline por dia */}
+      {Object.entries(porDia).map(([dia, eventos]) => (
+        <div key={dia}>
+          <p className="text-xs font-bold text-muted uppercase tracking-wide mb-3 capitalize">{dia}</p>
+          <div className="space-y-2 pl-4 border-l-2 border-border">
+            {eventos.map((item, i) => (
+              <div key={i} className="relative bg-bg rounded-xl border border-border p-3 hover:border-gold/30 transition-colors">
+                <div className="absolute -left-[1.35rem] top-3.5 w-2.5 h-2.5 rounded-full bg-gold border-2 border-surface" />
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                      <span className="text-xs text-muted">{item.tipo}</span>
+                      {item.badge && (
+                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${item.badgeCor ?? "bg-gray-100 text-gray-600"}`}>
+                          {item.badge}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm font-semibold text-text-main truncate">{item.titulo}</p>
+                    {item.subtitulo && <p className="text-xs text-muted mt-0.5">{item.subtitulo}</p>}
+                    {item.durMin !== null && item.durMin !== undefined && (
+                      <p className="text-xs text-blue-600 mt-0.5">⏱ {item.durMin < 60 ? `${item.durMin} min` : `${Math.round(item.durMin/60)}h ${item.durMin % 60}min`} desde a criação</p>
+                    )}
+                  </div>
+                  <span className="text-xs font-mono text-muted flex-shrink-0">
+                    {new Date(item.at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       ))}
@@ -2118,6 +2560,7 @@ export default function ProcessoPage() {
           {tab === "minutas"    && <AbaMinutas    processoId={id} />}
           {tab === "snapshots"  && <AbaSnapshots  processoId={id} />}
           {tab === "chat"       && <AbaChat       processoId={id} />}
+          {tab === "atividade"  && <AbaAtividade  processoId={id} />}
         </main>
       </div>
 
