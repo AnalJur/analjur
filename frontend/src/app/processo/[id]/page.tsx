@@ -111,6 +111,7 @@ function Modal({ title, onClose, children, wide }: {
 
 const TABS = [
   { id: "documentos", label: "Documentos" },
+  { id: "pecas",      label: "Peças" },
   { id: "cronologia", label: "Cronologia" },
   { id: "analises",   label: "Análises IA" },
   { id: "revisao",    label: "Revisão" },
@@ -1383,6 +1384,121 @@ function AbaChat({ processoId }: { processoId: string }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// ABA: PEÇAS
+// ════════════════════════════════════════════════════════════════════════════
+
+function AbaPecas({ processoId }: { processoId: string }) {
+  const [pecas, setPecas] = useState<Peca[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busca, setBusca] = useState("");
+  const [filtroTipo, setFiltroTipo] = useState("");
+
+  useEffect(() => {
+    // Busca todas as peças de todos os documentos do processo
+    api.documentos.listar(processoId).then(async docs => {
+      const todasPecas: Peca[] = [];
+      for (const doc of docs.filter(d => d.status === "processado")) {
+        try {
+          const ps = await api.documentos.pecas(processoId, doc.id);
+          todasPecas.push(...ps);
+        } catch { /* ignora */ }
+      }
+      // Ordena por página de início
+      todasPecas.sort((a, b) => (a.pagina_inicio ?? 0) - (b.pagina_inicio ?? 0));
+      setPecas(todasPecas);
+    }).finally(() => setLoading(false));
+  }, [processoId]);
+
+  const tipoMap: Record<string, string> = {
+    peticao_inicial:          "bg-blue-100 text-blue-700",
+    contestacao:              "bg-red-100 text-red-700",
+    replica:                  "bg-purple-100 text-purple-700",
+    sentenca:                 "bg-green-100 text-green-700",
+    acordao:                  "bg-green-100 text-green-800",
+    despacho:                 "bg-gray-100 text-gray-600",
+    decisao_interlocutoria:   "bg-orange-100 text-orange-700",
+    recurso:                  "bg-yellow-100 text-yellow-700",
+    contrarrazoes:            "bg-yellow-50 text-yellow-600",
+    certidao:                 "bg-slate-100 text-slate-600",
+    publicacao:               "bg-slate-100 text-slate-500",
+    laudo_pericial:           "bg-teal-100 text-teal-700",
+    procuracao:               "bg-indigo-100 text-indigo-600",
+    contrato:                 "bg-indigo-100 text-indigo-700",
+    outros:                   "bg-gray-100 text-gray-500",
+  };
+
+  const tipos = Array.from(new Set(pecas.map(p => p.tipo_peca))).sort();
+
+  const pecasFiltradas = pecas.filter(p => {
+    const matchBusca = !busca ||
+      p.tipo_peca.toLowerCase().includes(busca.toLowerCase()) ||
+      (p.resumo ?? "").toLowerCase().includes(busca.toLowerCase()) ||
+      (p.autor ?? "").toLowerCase().includes(busca.toLowerCase());
+    const matchTipo = !filtroTipo || p.tipo_peca === filtroTipo;
+    return matchBusca && matchTipo;
+  });
+
+  if (loading) return <div className="flex justify-center py-12"><Spinner /></div>;
+  if (!pecas.length) return (
+    <div className="text-center py-16 text-muted text-sm">
+      Nenhuma peça indexada. Certifique-se de que os documentos foram processados.
+    </div>
+  );
+
+  return (
+    <div className="space-y-3">
+      {/* Filtros */}
+      <div className="flex gap-3 flex-wrap">
+        <div className="flex-1 min-w-[200px]">
+          <SearchBar value={busca} onChange={setBusca} placeholder="Buscar peças…" />
+        </div>
+        <select
+          value={filtroTipo}
+          onChange={e => setFiltroTipo(e.target.value)}
+          className="border border-border rounded-lg px-3 py-2 text-sm bg-bg text-text-main focus:outline-none focus:ring-2 focus:ring-gold/40"
+        >
+          <option value="">Todos os tipos ({pecas.length})</option>
+          {tipos.map(t => (
+            <option key={t} value={t}>
+              {t.replace(/_/g, " ")} ({pecas.filter(p => p.tipo_peca === t).length})
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Lista */}
+      {pecasFiltradas.map((p, i) => (
+        <div key={p.id ?? i} className="bg-bg rounded-xl border border-border p-4 hover:border-gold/30 transition-colors">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <div className="flex flex-wrap items-center gap-2 mb-1">
+                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${tipoMap[p.tipo_peca] ?? "bg-gray-100 text-gray-500"}`}>
+                  {p.tipo_peca.replace(/_/g, " ").toUpperCase()}
+                </span>
+                <span className="text-xs text-muted font-mono">
+                  pág. {p.pagina_inicio}–{p.pagina_fim}
+                  {p.pagina_fim && p.pagina_inicio ? ` (${p.pagina_fim - p.pagina_inicio + 1} pág.)` : ""}
+                </span>
+                {p.data_documento && (
+                  <span className="text-xs text-muted">{fmtData(String(p.data_documento))}</span>
+                )}
+                {p.confianca_classificacao !== undefined && (
+                  <span className={`text-xs ${p.confianca_classificacao >= 0.8 ? "text-green-600" : "text-orange-500"}`}>
+                    {Math.round(p.confianca_classificacao * 100)}% conf.
+                  </span>
+                )}
+              </div>
+              {p.autor && <p className="text-xs text-muted">✍ {p.autor}</p>}
+              {p.resumo && <p className="text-xs text-muted mt-1 line-clamp-2">{p.resumo}</p>}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // MODAL: EDITAR PROCESSO
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -1556,6 +1672,17 @@ export default function ProcessoPage() {
           subtitle={[processo.tribunal, processo.vara, processo.assunto].filter(Boolean).join(" · ") || "Processo Jurídico"}
         />
         <main className="flex-1 p-6 sm:p-8">
+          {/* Botão voltar */}
+          <button
+            onClick={() => router.push("/dashboard")}
+            className="flex items-center gap-1.5 text-xs font-semibold text-muted hover:text-text-main mb-4 group transition-colors"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="group-hover:-translate-x-0.5 transition-transform">
+              <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
+            </svg>
+            Voltar para Dashboard
+          </button>
+
           {/* Cabeçalho do processo — info + botão editar */}
           <div className="bg-surface rounded-xl border border-border p-4 mb-5 flex flex-wrap items-start justify-between gap-3">
             <div className="flex-1 min-w-0 space-y-1.5">
@@ -1616,7 +1743,7 @@ export default function ProcessoPage() {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
             {[
               { label: "Documentos",        v: processo.total_documentos,  accent: false, tab: "documentos" as Tab },
-              { label: "Peças",             v: processo.total_pecas,       accent: false, tab: "documentos" as Tab },
+              { label: "Peças",             v: processo.total_pecas,       accent: false, tab: "pecas" as Tab },
               { label: "Chunks indexados",  v: processo.total_chunks,      accent: false, tab: "documentos" as Tab },
               { label: "Tarefas pendentes", v: processo.tarefas_pendentes, accent: processo.tarefas_pendentes > 0, tab: "revisao" as Tab },
             ].map(m => (
@@ -1645,6 +1772,7 @@ export default function ProcessoPage() {
 
           {/* Conteúdo */}
           {tab === "documentos" && <AbaDocumentos processoId={id} />}
+          {tab === "pecas"      && <AbaPecas      processoId={id} />}
           {tab === "cronologia" && <AbaCronologia processoId={id} />}
           {tab === "analises"   && <AbaAnalises   processoId={id} onRefreshProcesso={carregar} />}
           {tab === "revisao"    && <AbaRevisao    processoId={id} onRefreshProcesso={carregar} />}

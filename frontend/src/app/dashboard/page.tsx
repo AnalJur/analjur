@@ -280,7 +280,9 @@ export default function DashboardPage() {
                   </thead>
                   <tbody className="divide-y divide-border">
                     {processosFiltrados.map((p) => (
-                      <tr key={p.id} className="hover:bg-gold/5 transition-colors">
+                      <tr key={p.id}
+                        className="hover:bg-gold/5 transition-colors cursor-pointer"
+                        onClick={() => router.push(`/processo/${p.id}`)}>
                         {/* Número + Assunto em linha única */}
                         <td className="px-4 py-2.5 max-w-[260px]">
                           <div className="flex items-center gap-1.5 min-w-0">
@@ -315,12 +317,8 @@ export default function DashboardPage() {
                         <td className="px-4 py-2.5 text-xs text-muted whitespace-nowrap">
                           {p.updated_at ? new Date(p.updated_at).toLocaleDateString("pt-BR") : "—"}
                         </td>
-                        <td className="px-4 py-2.5 text-right">
+                        <td className="px-4 py-2.5 text-right" onClick={e => e.stopPropagation()}>
                           <div className="flex items-center justify-end gap-0.5">
-                            <button onClick={() => router.push(`/processo/${p.id}`)}
-                              className="text-xs font-semibold text-gold hover:text-gold-light px-2.5 py-1 rounded-lg hover:bg-gold/10 transition-all">
-                              Abrir
-                            </button>
                             <button onClick={() => router.push(`/upload?processo=${p.id}`)}
                               className="text-xs font-semibold text-muted hover:text-text-main px-2.5 py-1 rounded-lg hover:bg-bg transition-all">
                               + Doc

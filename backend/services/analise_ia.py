@@ -46,119 +46,348 @@ def _contar_tokens(texto: str) -> int:
     return len(_enc.encode(texto))
 
 
-SYSTEM_BASE = """Você é um assistente jurídico com conhecimento e perspectiva de advogado sênior especialista \
-com 20 anos de experiência em direito brasileiro.
-Analise os documentos com profundidade, precisão e senso crítico.
-REGRAS:
-- Baseie-se APENAS no conteúdo fornecido. Nunca invente fatos.
-- Cite sempre a fonte (tipo de peça, página) de informações relevantes.
-- Sinalize explicitamente qualquer incerteza.
-- Não tome decisões jurídicas — analise e recomende para revisão humana.
-- Responda SEMPRE em JSON válido conforme o schema solicitado."""
+SYSTEM_BASE = """Você é um advogado sênior brasileiro com 25 anos de atuação em TJSP, TRF, TST, STJ e STF. \
+Domina CPC/2015, CLT (pós-reforma 13.467/2017), CC/2002, CDC, Lei de Execuções, além de \
+jurisprudência consolidada e teses vinculantes dos tribunais superiores.
+
+MANDAMENTOS DE ANÁLISE:
+1. BASE FACTUAL: use APENAS o que consta nos documentos. Nunca invente datas, partes ou decisões.
+2. CITAÇÃO OBRIGATÓRIA: toda afirmação relevante deve ter fonte (tipo de peça + página).
+3. HONESTIDADE CLÍNICA: avalie pontos fracos da tese do cliente com a mesma severidade dos pontos fortes. \
+   Um cliente precisa de diagnóstico real, não de otimismo.
+4. PROFUNDIDADE TÉCNICA: identifique nulidades, preclusões, questões de ordem pública, vícios \
+   que a parte contrária pode arguir, e oportunidades que o advogado pode explorar.
+5. PRATICIDADE: cada recomendação deve ser uma ação concreta (ex: "interpor agravo de instrumento \
+   no prazo de 15 dias — art. 1.015, XI do CPC"), não uma observação genérica.
+6. LÓGICA PROCESSUAL: respeite a ordem natural do processo — inicial precede contestação, \
+   citação precede resposta, decisão precede recurso.
+7. RESPONDA SEMPRE em JSON válido, sem markdown extra, exatamente no schema solicitado."""
 
 
 PROMPTS = {
+
+    # ── ESTADO ATUAL ─────────────────────────────────────────────────────────
     "estado_atual": {
-        "instrucao": """Analise os documentos e retorne o estado atual completo do processo.
+        "instrucao": """Faça um diagnóstico completo do estado atual do processo como um advogado sênior faria \
+antes de uma reunião com o cliente.
+
+INSTRUÇÕES:
+- Identifique a fase processual exata (CPC 2015: conhecimento / saneamento / instrução / sentença / \
+  cumprimento de sentença / execução — ou CLT se trabalhista).
+- Liste TODAS as partes com seus papéis processuais e representação.
+- Mapeie os pedidos do autor e o grau em que cada um foi deferido/indeferido até agora.
+- Aponte decisões relevantes com impacto no mérito ou na admissibilidade.
+- Identifique NULIDADES, PRECLUSÕES e irregularidades processuais ainda não saneadas.
+- Calcule ou estime prazos vivos a partir das datas encontradas.
+- Sinalize inconsistências entre o que foi pedido e o que está documentado.
 
 JSON schema:
 {
+  "tipo_causa": "string (trabalhista | civil | consumidor | tributario | criminal | administrativo | outro)",
   "fase_processual": "string",
-  "ultima_movimentacao": {"data": "YYYY-MM-DD ou null", "descricao": "string"},
-  "partes": {"autor": ["string"], "reu": ["string"], "advogados": ["string"]},
-  "pedidos_principais": ["string"],
-  "decisoes_relevantes": [{"data": "YYYY-MM-DD ou null", "tipo": "string", "resumo": "string"}],
-  "pendencias": ["string"],
-  "prazos_identificados": [{"descricao": "string", "data": "YYYY-MM-DD ou null", "critico": true}],
-  "inconsistencias_documentais": ["string"],
+  "instancia": "string (1ª instância | 2ª instância | STJ | STF | TST | outro)",
+  "ultima_movimentacao": {"data": "YYYY-MM-DD ou null", "descricao": "string", "fonte": "string"},
+  "partes": {
+    "autor": [{"nome": "string", "advogado": "string ou null"}],
+    "reu": [{"nome": "string", "advogado": "string ou null"}],
+    "terceiros": ["string"]
+  },
+  "valor_causa": "string ou null",
+  "pedidos": [{"pedido": "string", "status": "pendente | deferido | indeferido | parcial", "observacao": "string ou null"}],
+  "decisoes_relevantes": [{"data": "YYYY-MM-DD ou null", "tipo": "string", "resumo": "string", "fonte": "string"}],
+  "nulidades_identificadas": [{"descricao": "string", "gravidade": "sanavel | insanavel", "fundamento_legal": "string"}],
+  "prazos_vivos": [{"descricao": "string", "data_base": "string ou null", "prazo_legal": "string", "vencimento_estimado": "YYYY-MM-DD ou null", "critico": true}],
+  "pendencias_criticas": ["string"],
+  "alertas": ["string"],
   "confianca": 0.0
 }""",
     },
+
+    # ── RESUMO EXECUTIVO ─────────────────────────────────────────────────────
     "resumo_executivo": {
-        "instrucao": """Gere um resumo executivo completo para um advogado sênior.
+        "instrucao": """Escreva um resumo executivo objetivo que um sócio de escritório leria em 3 minutos \
+para entender a situação completa e o que precisa de atenção imediata.
+
+INSTRUÇÕES:
+- Comece com uma frase de situação: o que é o caso, quem é o cliente, onde está.
+- Destaque os fatos jurídicos determinantes (não todos os fatos — os que importam para o desfecho).
+- Avalie com honestidade as chances de êxito com base na jurisprudência dominante.
+- Liste as 3-5 ações mais urgentes em ordem de prioridade.
+- Não use linguagem vaga ("pode ser relevante", "talvez"): seja direto.
 
 JSON schema:
 {
   "titulo": "string",
-  "resumo": "string",
-  "pontos_chave": ["string"],
-  "situacao_atual": "string",
-  "alertas": ["string"],
-  "recomendacoes_imediatas": ["string"],
+  "tipo_causa": "string",
+  "situacao_em_uma_linha": "string (ex: Ação de rescisão contratual — autor perdeu em 1ª instância — apelação pendente de julgamento no TJSP)",
+  "fatos_determinantes": ["string"],
+  "posicao_atual": "string",
+  "avaliacao_chances": {
+    "perspectiva": "favoravel | desfavoravel | incerta | equilibrada",
+    "justificativa": "string",
+    "jurisprudencia_dominante": "string"
+  },
+  "pontos_fortes_cliente": ["string"],
+  "pontos_fracos_cliente": ["string"],
+  "alertas_imediatos": ["string"],
+  "acoes_prioritarias": [{"acao": "string", "prazo": "string ou null", "fundamento": "string"}],
   "confianca": 0.0
 }""",
     },
+
+    # ── RISCOS ───────────────────────────────────────────────────────────────
     "riscos": {
-        "instrucao": """Identifique e classifique todos os riscos jurídicos do processo.
+        "instrucao": """Faça uma análise de risco como um advogado sênior faria para definir se deve aceitar \
+ou continuar o caso e quais medidas adotar.
+
+INSTRUÇÕES:
+- Separe riscos PROCESSUAIS (nulidades, preclusão, intempestividade) de riscos MATERIAIS (mérito fraco, \
+  prova insuficiente) e FINANCEIROS (valor em risco, custas, honorários sucumbenciais).
+- Para cada risco, indique SE e COMO ele pode ser mitigado com ação concreta.
+- Identifique prazos de prescrição e decadência se aplicável.
+- Avalie o risco de condenação em honorários sucumbenciais (art. 85 CPC ou CLT).
+- Seja realista — um risco "crítico" mal avaliado pode custar o caso.
 
 JSON schema:
 {
-  "riscos": [{"categoria": "prazo | probatorio | legal | estrategico | financeiro",
-    "descricao": "string", "severidade": "baixa | media | alta | critica",
-    "probabilidade": "baixa | media | alta", "mitigacao_sugerida": "string", "fonte": "string"}],
-  "exposicao_financeira": {"estimativa": "string", "base": "string"},
+  "nivel_risco_global": "baixo | medio | alto | critico",
+  "riscos": [
+    {
+      "categoria": "prescricao | decadencia | nulidade_processual | prova | merito | prazo | sucumbencia | financeiro | estrategico",
+      "descricao": "string",
+      "severidade": "baixa | media | alta | critica",
+      "probabilidade": "improvavel | possivel | provavel | quase_certo",
+      "fundamento_legal": "string (artigo, súmula ou precedente aplicável)",
+      "mitigacao": "string (ação concreta para reduzir o risco)",
+      "fonte_no_processo": "string"
+    }
+  ],
+  "exposicao_financeira": {
+    "valor_principal": "string ou null",
+    "juros_multas_estimados": "string ou null",
+    "honorarios_sucumbenciais_estimados": "string ou null",
+    "total_estimado": "string ou null",
+    "base_calculo": "string"
+  },
+  "prescricao_decadencia": {
+    "aplicavel": true,
+    "prazo": "string ou null",
+    "data_inicio": "string ou null",
+    "vencimento": "YYYY-MM-DD ou null",
+    "status": "em_prazo | a_vencer_em_breve | vencido | interrompido | suspenso | nao_identificado"
+  },
   "prazo_mais_urgente": {"descricao": "string", "data": "YYYY-MM-DD ou null"},
   "confianca": 0.0
 }""",
     },
+
+    # ── TESES ────────────────────────────────────────────────────────────────
     "teses": {
-        "instrucao": """Identifique as teses jurídicas presentes e potenciais.
+        "instrucao": """Mapeie o campo de batalha jurídico: identifique as teses de cada parte, avalie sua força \
+e aponte teses que deveriam ter sido levantadas mas não foram.
+
+INSTRUÇÕES:
+- Para cada tese, cite o FUNDAMENTO LEGAL ESPECÍFICO (artigo + lei, ou súmula, ou precedente vinculante).
+- Avalie se a tese tem suporte na jurisprudência dominante do STJ/STF/TST.
+- Identifique teses do adversário que são FORTES e merecem atenção.
+- Aponte questões de ordem pública que o juiz pode conhecer de ofício.
+- Identifique teses não levantadas que poderiam beneficiar o cliente.
+- Diferencie teses processuais de teses de mérito.
 
 JSON schema:
 {
-  "teses_autor": [{"tese": "string", "fundamento_legal": "string", "status": "acolhida | pendente | rejeitada", "evidencia": "string"}],
-  "teses_reu": [{"tese": "string", "fundamento_legal": "string", "status": "acolhida | pendente | rejeitada", "evidencia": "string"}],
-  "questoes_ordem_publica": ["string"],
-  "teses_potenciais": ["string"],
+  "teses_autor": [
+    {
+      "tese": "string",
+      "natureza": "processual | merito",
+      "fundamento_legal": "string (ex: art. 186 CC/2002; Súmula 385 STJ)",
+      "status": "acolhida | pendente | rejeitada | nao_apreciada",
+      "forca": "solida | razoavel | fragil",
+      "jurisprudencia_dominante": "string (favoravel | contraria | divergente | sem_precedente)",
+      "evidencia_no_processo": "string"
+    }
+  ],
+  "teses_reu": [
+    {
+      "tese": "string",
+      "natureza": "processual | merito",
+      "fundamento_legal": "string",
+      "status": "acolhida | pendente | rejeitada | nao_apreciada",
+      "forca": "solida | razoavel | fragil",
+      "jurisprudencia_dominante": "string",
+      "risco_para_autor": "alto | medio | baixo"
+    }
+  ],
+  "questoes_ordem_publica": [{"questao": "string", "fundamento": "string"}],
+  "teses_nao_levantadas_pelo_autor": [
+    {
+      "tese": "string",
+      "fundamento_legal": "string",
+      "potencial": "alto | medio | baixo",
+      "observacao": "string"
+    }
+  ],
+  "teses_nao_levantadas_pelo_reu": [
+    {
+      "tese": "string",
+      "fundamento_legal": "string",
+      "risco_para_autor": "alto | medio | baixo"
+    }
+  ],
   "confianca": 0.0
 }""",
     },
+
+    # ── CRONOLOGIA ───────────────────────────────────────────────────────────
     "cronologia": {
-        "instrucao": """Extraia a cronologia completa de todos os eventos do processo.
+        "instrucao": """Extraia a cronologia de ATOS PROCESSUAIS deste processo em ordem cronológica.
+
+⚠ REGRAS CRÍTICAS ANTI-CONTAMINAÇÃO DE DATAS:
+- Extraia SOMENTE datas de atos praticados NESTE PROCESSO (protocolos, despachos, citações, \
+  audiências, decisões, publicações, recursos, intimações).
+- IGNORE completamente datas de: jurisprudência citada nos textos ("Acórdão de 2008..."), \
+  referências legislativas ("Lei de 1943", "Código de 1973"), contratos e documentos \
+  anexados como provas (que têm datas próprias anteriores ao processo), certidões de \
+  outros processos, datas de nascimento ou de contratos mencionados na inicial.
+- LÓGICA PROCESSUAL OBRIGATÓRIA que deve ser verificada:
+    • Petição inicial SEMPRE é o primeiro ato (data de protocolo = data de propositura)
+    • Despacho de recebimento vem APÓS a inicial
+    • Citação ocorre APÓS o despacho que a determina
+    • Contestação vem APÓS citação (prazo: 15 dias CPC / 8 dias CLT após citação)
+    • Réplica vem APÓS contestação
+    • Audiência de instrução vem APÓS encerramento da fase escrita
+    • Sentença vem APÓS instrução
+    • Recursos vêm APÓS a decisão impugnada
+- Se encontrar datas que violam esta lógica, DESCARTE-AS e sinalize no campo "inconsistencias".
 
 JSON schema:
 {
-  "eventos": [{"data": "YYYY-MM-DD ou null", "data_aproximada": false,
-    "tipo": "protocolo | despacho | decisao | sentenca | acordao | prazo | audiencia | pericia | recurso | publicacao | citacao | intimacao | outro",
-    "descricao": "string", "relevancia": "baixa | media | alta | critica", "fonte_peca": "string"}],
+  "eventos": [
+    {
+      "data": "YYYY-MM-DD ou null",
+      "data_aproximada": false,
+      "tipo": "protocolo_inicial | despacho | citacao | contestacao | replica | audiencia | pericia | decisao_interlocutoria | sentenca | acordao | recurso | contrarrazoes | publicacao | intimacao | cumprimento | outro",
+      "descricao": "string (inclua quem praticou o ato e o resultado se houver)",
+      "relevancia": "baixa | media | alta | critica",
+      "fonte_peca": "string (tipo de peça + página)"
+    }
+  ],
+  "inconsistencias": ["string (descreva datas descartadas e o motivo)"],
+  "periodo_total": {"inicio": "YYYY-MM-DD ou null", "fim": "YYYY-MM-DD ou null", "duracao_aproximada": "string"},
   "confianca": 0.0
 }""",
     },
+
+    # ── PRÓXIMOS PASSOS ──────────────────────────────────────────────────────
     "proximos_passos": {
-        "instrucao": """Identifique todas as ações jurídicas necessárias nos próximos 90 dias.
+        "instrucao": """Identifique TODAS as ações concretas que o advogado responsável deve tomar, \
+com prazo, fundamento legal e consequência de não agir.
+
+INSTRUÇÕES:
+- Liste ações em ordem de urgência (crítica → urgente → alta → normal).
+- Para cada prazo processual, cite o artigo legal que o fundamenta.
+- Identifique tutelas de urgência, cautelares ou medidas liminares que podem ser requeridas.
+- Avalie a possibilidade de negociação/acordo e o momento ideal.
+- Indique atos que a PARTE CONTRÁRIA provavelmente tomará em seguida.
+- Sinalize se há risco de perda de prazo iminente que possa causar prejuízo irreparável.
 
 JSON schema:
 {
-  "acoes": [{"acao": "string", "tipo": "prazo_legal | diligencia | peticao | audiencia | recurso",
-    "urgencia": "normal | alta | urgente | critica", "prazo": "YYYY-MM-DD ou null",
-    "responsavel_sugerido": "string ou null", "fundamento": "string"}],
-  "alertas_prazo": ["string"],
+  "acoes": [
+    {
+      "acao": "string (ex: Interpor Apelação contra a sentença de fls. X)",
+      "tipo": "recurso | peticao | diligencia | audiencia | acordo | cautelar | tutela | cumprimento | outro",
+      "urgencia": "critica | urgente | alta | normal",
+      "prazo_legal": "string (ex: 15 dias corridos — art. 1.003, §5º CPC)",
+      "data_base": "YYYY-MM-DD ou null (data do ato que inicia o prazo)",
+      "vencimento_estimado": "YYYY-MM-DD ou null",
+      "fundamento": "string",
+      "consequencia_inacao": "string (o que acontece se não agir)"
+    }
+  ],
+  "movimentos_esperados_adversario": ["string"],
+  "oportunidade_acordo": {
+    "recomendado": true,
+    "momento": "string",
+    "faixa_sugerida": "string ou null",
+    "justificativa": "string"
+  },
+  "alertas_criticos": ["string"],
   "confianca": 0.0
 }""",
     },
+
+    # ── ESTRATÉGIA ───────────────────────────────────────────────────────────
     "estrategia": {
-        "instrucao": """Sugira estratégias jurídicas. Apenas sugestões para revisão humana.
+        "instrucao": """Elabore um plano estratégico completo como um advogado sênior que precisa decidir \
+o caminho a seguir para maximizar as chances do cliente.
+
+INSTRUÇÕES:
+- Primeiro: avalie o terreno — fase atual, forças, fraquezas, jurisprudência dominante.
+- Depois: proponha 2-4 estratégias distintas com custo-benefício real.
+- Para cada estratégia: seja específico sobre QUAIS PEÇAS protocolar, QUAIS ARGUMENTOS usar, \
+  QUAIS PROVAS produzir, QUAIS PRECEDENTES citar.
+- Identifique o "melhor cenário", "cenário mais provável" e "pior cenário".
+- Avalie se acordo é mais vantajoso que litigância e em que condições.
+- Cite súmulas e precedentes vinculantes que apoiam ou prejudicam cada estratégia.
 
 JSON schema:
 {
-  "aviso": "Sugestões geradas por IA — revisão humana obrigatória.",
-  "estrategias": [{"estrategia": "string", "justificativa": "string",
-    "vantagens": ["string"], "riscos": ["string"], "evidencias": ["string"]}],
-  "pontos_fortes": ["string"],
-  "pontos_fracos": ["string"],
+  "aviso": "Sugestões geradas por IA — validação obrigatória pelo advogado responsável.",
+  "diagnostico": {
+    "tipo_causa": "string",
+    "fase": "string",
+    "posicao_cliente": "favoravel | desfavoravel | equilibrada",
+    "jurisprudencia_dominante": "string",
+    "precedentes_favoraveis": ["string (Súmula/Acórdão + tribunal)"],
+    "precedentes_contrarios": ["string"]
+  },
+  "cenarios": {
+    "melhor": "string",
+    "mais_provavel": "string",
+    "pior": "string"
+  },
+  "estrategias": [
+    {
+      "nome": "string (ex: Estratégia 1 — Recurso agressivo ao STJ)",
+      "descricao": "string",
+      "acoes_concretas": ["string (ex: Interpor REsp alegando violação ao art. 422 CC — boa-fé objetiva)"],
+      "pecas_a_protocolar": ["string"],
+      "provas_a_produzir": ["string"],
+      "precedentes_a_citar": ["string"],
+      "vantagens": ["string"],
+      "riscos": ["string"],
+      "custo_estimado": "string ou null",
+      "probabilidade_sucesso": "string"
+    }
+  ],
+  "recomendacao_principal": "string",
   "confianca": 0.0
 }""",
     },
+
+    # ── IMPACTO DA ATUALIZAÇÃO ────────────────────────────────────────────────
     "impacto_atualizacao": {
-        "instrucao": """Compare os documentos e identifique mudanças e novos elementos.
+        "instrucao": """O processo recebeu novos documentos. Analise o IMPACTO dessas novidades \
+na estratégia e nos prazos já em curso.
+
+INSTRUÇÕES:
+- Identifique o que mudou em relação à situação anterior.
+- Avalie se novos documentos abrem ou fecham possibilidades processuais.
+- Recalcule prazos que possam ter sido reiniciados ou criados.
+- Sinalize se a estratégia precisa ser revista à luz dos novos fatos.
+- Identifique se a parte contrária tomou atos que exigem resposta imediata.
 
 JSON schema:
 {
-  "novos_documentos": ["string"], "mudancas_fase": "string ou null",
-  "novas_decisoes": [{"tipo": "string", "resumo": "string"}],
-  "novos_prazos": [{"descricao": "string", "data": "YYYY-MM-DD ou null"}],
-  "impacto_estrategia": "string",
-  "acoes_recomendadas": [{"acao": "string", "urgencia": "normal | alta | urgente", "prazo": "string ou null"}],
+  "novos_documentos": [{"tipo": "string", "paginas": "string", "relevancia": "string"}],
+  "mudancas_relevantes": ["string"],
+  "mudanca_fase_processual": "string ou null",
+  "novas_decisoes": [{"tipo": "string", "resumo": "string", "data": "YYYY-MM-DD ou null", "impacto": "string"}],
+  "novos_prazos_criados": [{"descricao": "string", "data_base": "YYYY-MM-DD ou null", "prazo_legal": "string", "vencimento": "YYYY-MM-DD ou null"}],
+  "impacto_estrategia": "mantida | ajuste_menor | revisao_necessaria | mudanca_total",
+  "justificativa_impacto": "string",
+  "acoes_imediatas": [{"acao": "string", "urgencia": "critica | urgente | alta | normal", "prazo": "string ou null", "fundamento": "string"}],
   "confianca": 0.0
 }""",
     },
@@ -262,8 +491,14 @@ async def _montar_contexto_hierarquico(pecas: list[dict], client: anthropic.Anth
 
 # ── Multi-pass para cronologia ────────────────────────────────────────────────
 
-_INSTRUCAO_CHUNK_CRON = """Extraia TODOS os eventos cronológicos deste trecho do processo judicial.
-Inclua: protocolos, decisões, despachos, publicações, prazos, audiências, citações, intimações, recursos, perícias.
+_INSTRUCAO_CHUNK_CRON = """Extraia ATOS PROCESSUAIS deste trecho de processo judicial brasileiro.
+
+⚠ REGRAS ANTI-CONTAMINAÇÃO (siga rigorosamente):
+- Extraia SOMENTE atos praticados NESTE processo: protocolos, despachos, decisões, citações, \
+  intimações, audiências, publicações, recursos, sentenças.
+- IGNORE datas de: jurisprudência citada, leis referenciadas, contratos anexados, \
+  certidões de outros processos, datas de nascimento, datas de fatos anteriores à ação.
+- Se uma data viola a lógica processual (ex: recurso antes da decisão), descarte-a.
 
 Responda SOMENTE com JSON válido:
 {
@@ -271,15 +506,15 @@ Responda SOMENTE com JSON válido:
     {
       "data": "YYYY-MM-DD ou null",
       "data_aproximada": false,
-      "tipo": "protocolo | despacho | decisao | sentenca | acordao | prazo | audiencia | pericia | recurso | publicacao | citacao | intimacao | outro",
-      "descricao": "descrição completa do evento",
+      "tipo": "protocolo_inicial | despacho | citacao | contestacao | replica | audiencia | pericia | decisao_interlocutoria | sentenca | acordao | recurso | contrarrazoes | publicacao | intimacao | cumprimento | outro",
+      "descricao": "descrição completa identificando quem praticou o ato e o resultado",
       "relevancia": "baixa | media | alta | critica",
-      "fonte_peca": "tipo e página de origem"
+      "fonte_peca": "tipo de peça e número de página"
     }
   ]
 }
 
-Se não há eventos neste trecho, retorne {"eventos": []}."""
+Se não há atos processuais identificáveis neste trecho, retorne {"eventos": []}."""
 
 
 async def _cronologia_multipass(
@@ -462,7 +697,7 @@ async def gerar_analise(
         msg = await _claude_async(
             client,
             model=settings.llm_model,
-            max_tokens=4096,
+            max_tokens=8192,
             system=SYSTEM_BASE,
             messages=[{"role": "user", "content": user_content}],
         )
