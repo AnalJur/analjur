@@ -918,19 +918,31 @@ function SectionTitle({ icon, title }: { icon: string; title: string }) {
   );
 }
 
-function DiagnosticoRenderer({ d }: { d: Record<string, unknown> }) {
-  const cronologia = (d.cronologia_marcos ?? []) as Array<Record<string, unknown>>;
-  const falhas = d.falhas_e_oportunidades as Record<string, unknown> | undefined;
-  const vantagens = (falhas?.vantagem_do_cliente ?? []) as Array<Record<string, unknown>>;
-  const riscosDoCli = (falhas?.risco_do_cliente ?? []) as Array<Record<string, unknown>>;
-  const teses = d.teses_juridicas as Record<string, unknown> | undefined;
-  const naoLevantadas = (teses?.nao_levantadas_mas_deveriam ?? []) as Array<Record<string, unknown>>;
-  const adversario = (teses?.do_adversario_que_preocupam ?? []) as Array<Record<string, unknown>>;
-  const levantadas = (teses?.levantadas_pelo_cliente ?? []) as Array<Record<string, unknown>>;
-  const estrategia = d.estrategia_recomendada as Record<string, unknown> | undefined;
-  const proxPassos = (d.proximos_passos ?? []) as Array<Record<string, unknown>>;
-  const alertas = (d.alertas_criticos ?? []) as string[];
-  const avaliacao = d.avaliacao_chances as Record<string, unknown> | undefined;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function DiagnosticoRenderer({ d }: { d: any }) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const cronologia: any[] = d.cronologia_marcos ?? [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const falhas: any = d.falhas_e_oportunidades;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const vantagens: any[] = falhas?.vantagem_do_cliente ?? [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const riscosDoCli: any[] = falhas?.risco_do_cliente ?? [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const teses: any = d.teses_juridicas;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const naoLevantadas: any[] = teses?.nao_levantadas_mas_deveriam ?? [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const adversario: any[] = teses?.do_adversario_que_preocupam ?? [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const levantadas: any[] = teses?.levantadas_pelo_cliente ?? [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const estrategia: any = d.estrategia_recomendada;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const proxPassos: any[] = d.proximos_passos ?? [];
+  const alertas: string[] = d.alertas_criticos ?? [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const avaliacao: any = d.avaliacao_chances;
 
   return (
     <div className="space-y-6 text-sm">
