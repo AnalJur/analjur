@@ -745,16 +745,18 @@ function AbaCronologia({ processoId }: { processoId: string }) {
 // ════════════════════════════════════════════════════════════════════════════
 
 const TIPOS_ANALISE = [
-  { id: "diagnostico_completo", label: "⚖ Diagnóstico Completo", premium: true,
+  { id: "diagnostico_completo",  label: "⚖ Diagnóstico Completo", premium: true,
     descricao: "Análise completa como um advogado sênior: cronologia, falhas, teses, riscos e estratégia" },
-  { id: "estado_atual",        label: "Estado Atual" },
-  { id: "resumo_executivo",    label: "Resumo Executivo" },
-  { id: "riscos",              label: "Riscos" },
-  { id: "teses",               label: "Teses Jurídicas" },
-  { id: "cronologia",          label: "Cronologia IA" },
-  { id: "impacto_atualizacao", label: "Impacto da Atualização" },
-  { id: "proximos_passos",     label: "Próximos Passos" },
-  { id: "estrategia",          label: "Estratégia" },
+  { id: "descricao_documentos",  label: "📋 Descrição dos Autos",
+    descricao: "Descrição fiel e detalhada de cada peça processual com transcrição literal dos dispositivos" },
+  { id: "estado_atual",          label: "Estado Atual" },
+  { id: "resumo_executivo",      label: "Resumo Executivo" },
+  { id: "riscos",                label: "Riscos" },
+  { id: "teses",                 label: "Teses Jurídicas" },
+  { id: "cronologia",            label: "Cronologia IA" },
+  { id: "impacto_atualizacao",   label: "Impacto da Atualização" },
+  { id: "proximos_passos",       label: "Próximos Passos" },
+  { id: "estrategia",            label: "Estratégia" },
 ];
 
 function ModalAnalise({ analise, processoId, processo, onUpdate, onClose, onDelete }: {
@@ -823,6 +825,8 @@ function ModalAnalise({ analise, processoId, processo, onUpdate, onClose, onDele
         <div className="bg-bg rounded-xl border border-border p-4 max-h-[60vh] overflow-y-auto">
           {analise.tipo === "diagnostico_completo"
             ? <DiagnosticoRenderer d={analise.conteudo_json} />
+            : analise.tipo === "descricao_documentos"
+            ? <DescricaoDocumentosRenderer d={analise.conteudo_json} />
             : <AnaliseConteudo conteudo={analise.conteudo_json} />
           }
         </div>
@@ -881,6 +885,142 @@ function ModalAnalise({ analise, processoId, processo, onUpdate, onClose, onDele
         </div>
       </div>
     </Modal>
+  );
+}
+
+// ── Renderizador especializado para Descrição de Documentos ─────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function DescricaoDocumentosRenderer({ d }: { d: any }) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const docs: any[] = d?.documentos ?? [];
+
+  const relevanciaStyle: Record<string, string> = {
+    essencial: "border-l-red-500 bg-red-50/30",
+    alta:      "border-l-orange-400 bg-orange-50/30",
+    media:     "border-l-yellow-400 bg-yellow-50/30",
+    baixa:     "border-l-gray-300 bg-bg",
+  };
+  const relevanciaBadge: Record<string, string> = {
+    essencial: "bg-red-100 text-red-700",
+    alta:      "bg-orange-100 text-orange-700",
+    media:     "bg-yellow-100 text-yellow-700",
+    baixa:     "bg-gray-100 text-gray-500",
+  };
+
+  return (
+    <div className="space-y-5 text-sm">
+      {/* Cabeçalho */}
+      <div className="flex items-center justify-between bg-navy/5 rounded-xl px-4 py-3">
+        <span className="text-sm font-bold text-navy">
+          📋 {docs.length} peça{docs.length !== 1 ? "s" : ""} descritas
+        </span>
+        {d?.observacoes_gerais && (
+          <span className="text-xs text-muted max-w-[60%] text-right">{d.observacoes_gerais}</span>
+        )}
+      </div>
+
+      {docs.length === 0 && (
+        <p className="text-muted text-sm text-center py-6">Nenhuma peça encontrada.</p>
+      )}
+
+      {docs.map((doc: any, i: number) => {
+        const rel = String(doc.relevancia_documental ?? "media").toLowerCase();
+        return (
+          <div key={i} className={`rounded-xl border border-border border-l-4 ${relevanciaStyle[rel] ?? "border-l-gray-300"} p-4 space-y-3`}>
+            {/* Cabeçalho da peça */}
+            <div className="flex flex-wrap items-start gap-2 justify-between">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-bold text-text-main text-sm uppercase">
+                  {String(doc.tipo_peca ?? "").replace(/_/g, " ")}
+                </span>
+                <span className="text-xs text-muted">{doc.paginas}</span>
+                {doc.data_documento && (
+                  <span className="text-xs bg-navy/10 text-navy px-2 py-0.5 rounded font-semibold">
+                    {doc.data_documento}
+                  </span>
+                )}
+              </div>
+              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${relevanciaBadge[rel] ?? "bg-gray-100 text-gray-500"}`}>
+                {doc.relevancia_documental ?? "media"}
+              </span>
+            </div>
+
+            {/* Autor / órgão */}
+            {(doc.autor || doc.orgao_juizo) && (
+              <div className="flex flex-wrap gap-4 text-xs text-muted">
+                {doc.autor && <span><strong>Autor:</strong> {doc.autor}</span>}
+                {doc.orgao_juizo && <span><strong>Órgão:</strong> {doc.orgao_juizo}</span>}
+                {doc.destinatario && <span><strong>Para:</strong> {doc.destinatario}</span>}
+              </div>
+            )}
+
+            {/* Função processual */}
+            {doc.funcao_processual && (
+              <p className="text-xs text-muted italic">{doc.funcao_processual}</p>
+            )}
+
+            {/* Descrição fiel */}
+            {doc.descricao_fiel && (
+              <p className="text-sm text-text-main leading-relaxed">{doc.descricao_fiel}</p>
+            )}
+
+            {/* Dispositivo literal */}
+            {doc.transcricao_dispositivo && (
+              <div className="bg-navy/5 rounded-lg p-3 border-l-2 border-navy">
+                <p className="text-xs font-bold text-navy uppercase mb-1">Dispositivo (transcrição literal)</p>
+                <p className="text-xs text-text-main leading-relaxed whitespace-pre-wrap font-mono">{doc.transcricao_dispositivo}</p>
+              </div>
+            )}
+
+            {/* Pedidos */}
+            {Array.isArray(doc.pedidos) && doc.pedidos.length > 0 && (
+              <div>
+                <p className="text-xs font-bold text-text-main uppercase mb-1">Pedidos</p>
+                <ol className="list-decimal list-inside space-y-0.5">
+                  {doc.pedidos.map((p: string, j: number) => (
+                    <li key={j} className="text-xs text-text-main">{p}</li>
+                  ))}
+                </ol>
+              </div>
+            )}
+
+            {/* Fundamentos legais + valores */}
+            <div className="flex flex-wrap gap-4">
+              {Array.isArray(doc.fundamentos_legais_citados) && doc.fundamentos_legais_citados.length > 0 && (
+                <div className="flex-1 min-w-[200px]">
+                  <p className="text-xs font-bold text-text-main uppercase mb-1">Fundamentos</p>
+                  <div className="flex flex-wrap gap-1">
+                    {doc.fundamentos_legais_citados.map((f: string, j: number) => (
+                      <span key={j} className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded">{f}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {Array.isArray(doc.valores_mencionados) && doc.valores_mencionados.length > 0 && (
+                <div>
+                  <p className="text-xs font-bold text-text-main uppercase mb-1">Valores</p>
+                  <div className="flex flex-wrap gap-1">
+                    {doc.valores_mencionados.map((v: string, j: number) => (
+                      <span key={j} className="text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded font-semibold">{v}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Partes mencionadas */}
+            {Array.isArray(doc.partes_mencionadas) && doc.partes_mencionadas.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {doc.partes_mencionadas.map((p: string, j: number) => (
+                  <span key={j} className="text-xs bg-surface border border-border px-2 py-0.5 rounded">{p}</span>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

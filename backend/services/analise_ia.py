@@ -68,6 +68,131 @@ MANDAMENTOS DE ANÁLISE:
    citação precede resposta, decisão precede recurso.
 7. RESPONDA SEMPRE em JSON válido, sem markdown extra, exatamente no schema solicitado."""
 
+# ── System prompts especializados por área do direito ─────────────────────────
+
+_SYSTEM_POR_AREA: dict[str, str] = {
+    "trabalhista": """\
+
+ESPECIALIZAÇÃO — DIREITO DO TRABALHO:
+- Aplique CLT (pós-Reforma 13.467/2017): art. 11 (prescrição bienal/quinquenal), art. 840 \
+  (requisitos da petição inicial), art. 791-A (honorários sucumbenciais), art. 855-B a 855-E (acordo extrajudicial).
+- Súmulas e OJs do TST são vinculantes — cite sempre o número (ex: Súmula 277 TST, OJ 330 SDI-1).
+- Reforma Trabalhista 2017: identifique se os fatos são anteriores ou posteriores à vigência \
+  (vigência: 11/11/2017) — impacta prescrição, honorários, periciais e terceirização.
+- Reconhecimento de vínculo empregatício: art. 3º CLT — analise subordinação, pessoalidade, \
+  habitualidade e onerosidade. Pejotização: verifique fraude nos contratos de prestação de serviços.
+- Horas extras: Súmulas 23, 338, 340 e 437 TST. Banco de horas: Súmula 85 TST.
+- FGTS: prescrição trintenária (antes de 2015) vs. bienal/quinquenal (após ARE 709.212 STF).
+- Prescrição intercorrente: art. 11-A CLT — vigente apenas nos processos após 11/11/2017.
+- Dano extrapatrimonial: art. 223-A a 223-G CLT — tabelamento constitucional questionado (STF RE 1.401.560).""",
+
+    "civil": """\
+
+ESPECIALIZAÇÃO — DIREITO CIVIL / PROCESSUAL CIVIL:
+- CPC/2015 com rigor: identifique preclusões (art. 507), nulidades (art. 276-283) e vícios de procedimento.
+- Prescrição (CC art. 205-206) e decadência: cite o prazo específico aplicável ao caso concreto.
+- Responsabilidade civil: art. 186-188 CC (ato ilícito), art. 927 (responsabilidade objetiva), \
+  art. 944 (extensão do dano) e art. 945 (culpa concorrente).
+- Contratos: art. 421-422 CC (função social + boa-fé objetiva), art. 317 (revisão), \
+  art. 478-480 (resolução por onerosidade excessiva), art. 413 (redução equitativa de cláusula penal).
+- Tutelas de urgência: art. 300 CPC (tutela antecipada — fumus + periculum), art. 301 (cautelar), \
+  art. 311 (tutela de evidência — dispensa periculum).
+- Recursos: apelação art. 1.009 (15 dias), agravo art. 1.015 (taxatividade mitigada — STJ), \
+  REsp art. 1.029 (prazo 15 dias), RE (repercussão geral).
+- Honorários sucumbenciais: art. 85 CPC — faixas progressivas; fixação por equidade (§8º) quando \
+  valor da causa for irrisório ou inestimável.
+- Execução: ordem de penhora art. 835, parcelamento art. 916, impenhorabilidade art. 833.""",
+
+    "consumidor": """\
+
+ESPECIALIZAÇÃO — DIREITO DO CONSUMIDOR:
+- CDC (Lei 8.078/90): responsabilidade objetiva do fornecedor (art. 12-14), inversão do ônus da \
+  prova (art. 6º, VIII — fato do produto/serviço e hipossuficiência técnica).
+- Vícios do produto: art. 18-20 CDC — prazo de reclamação 30 dias (não duráveis) / 90 dias (duráveis); \
+  prazo prescricional: 5 anos (art. 27 — fato do produto) ou 3 anos (CC art. 206, §3º, V — vício).
+- Cláusulas nulas de pleno direito: art. 51 CDC (lista exemplificativa — Súmula 302 STJ: limite temporal em seguro de vida).
+- Práticas abusivas: art. 39 CDC — venda casada, recusa de orçamento, cobrança vexatória.
+- Repetição de indébito em dobro: art. 42 par. único CDC — exige cobrança extrajudicial; \
+  Súmula 159 STJ: aplica-se em cobranças judiciais indevidas.
+- Dano moral in re ipsa (STJ): negativação indevida (Súmula 385), inscrição abusiva em cadastro, \
+  cancelamento de voo sem aviso, descumprimento de oferta (art. 35 CDC).
+- Planos de saúde: Lei 9.656/98 + RN ANS 465/21 — ROL é exemplificativo (STJ EREsp 1.886.929).
+- Bancos e financeiras: Súmula 297 STJ (CDC aplica-se), Súmula 530 STJ (prazo 5 anos).""",
+
+    "tributario": """\
+
+ESPECIALIZAÇÃO — DIREITO TRIBUTÁRIO:
+- CTN (Lei 5.172/66): lançamento (art. 142-150), decadência (art. 150, 173 — 5 anos), \
+  prescrição para cobrança (art. 174 — 5 anos da constituição definitiva do crédito).
+- Execução fiscal: Lei 6.830/80 — embargos (30 dias após garantia integral do juízo, art. 16), \
+  exceção de pré-executividade (matérias de ordem pública, Súmula 393 STJ).
+- REDIRECIONAMENTO: art. 135 CTN (sócios gerentes) — Súmula 435 STJ (dissolução irregular).
+- Compensação tributária: art. 170 CTN + Lei 9.430/96 (RFB) — condições e limitações.
+- Repetição de indébito: art. 165-168 CTN; prazo 5 anos (STJ Tema 164 — ação de repetição prescreve em 5 anos).
+- PGFN / transação tributária: Lei 13.988/20 — condições, descontos, parcelamento.
+- Precedentes vinculantes: RE 574.706 STF (ICMS fora da base PIS/COFINS — Tema 69), \
+  RE 240.785 STF (ICMS-ST), Tema 1.048 STJ (IRPJ/CSLL sobre Selic na repetição de indébito).
+- Medida liminar em MS para suspender exigibilidade: art. 151, IV CTN — requisitos.""",
+
+    "criminal": """\
+
+ESPECIALIZAÇÃO — DIREITO PENAL / PROCESSUAL PENAL:
+- CPP: fases (inquérito → denúncia → recebimento → citação → resposta → instrução → alegações → sentença).
+- Prescrição penal: CP art. 109-119 — calculada pela pena máxima abstrata antes do trânsito; \
+  pela pena concreta após (prescrição retroativa e intercorrente).
+- Nulidades absolutas (CPP art. 564): ausência de citação válida, falta de defesa técnica, \
+  sentença sem fundamentação, cerceamento de defesa.
+- Habeas corpus: constrangimento ilegal, excesso de prazo (Súmula 21 STJ), prisão sem fumus.
+- Prisão preventiva: art. 312 CPP — garantia da ordem pública/econômica, conveniência da instrução, \
+  assegurar a aplicação da lei penal. Duração razoável: Súmula 21 STJ.
+- Tráfico de drogas: Lei 11.343/06 — art. 33 vs art. 28 (uso pessoal vs. tráfico); \
+  redutor art. 33 §4º (40%-2/3): primário, bons antecedentes, não integrante de organização.
+- Lei 12.850/13 (organizações criminosas): colaboração premiada, infiltração, ação controlada.
+- Execução penal: LEP (Lei 7.210/84) — progressão de regime, livramento condicional, remição.""",
+
+    "administrativo": """\
+
+ESPECIALIZAÇÃO — DIREITO ADMINISTRATIVO:
+- Princípios da Administração (CF art. 37): legalidade, impessoalidade, moralidade, publicidade, \
+  eficiência. Violação a qualquer um fundamenta anulação do ato.
+- Processo administrativo: Lei 9.784/99 (federal) — contraditório, ampla defesa, motivação \
+  (art. 50), razoabilidade e proporcionalidade.
+- Improbidade administrativa: Lei 8.429/92 reformada pela Lei 14.230/21 — DOLO ESPECÍFICO \
+  obrigatório (STF ADI 7.236); prescrição 8 anos (art. 23).
+- Licitações: Lei 14.133/21 (vigente) vs. Lei 8.666/93 (processos anteriores) — cite a lei \
+  correta conforme a data do edital.
+- Servidores públicos: CF art. 41 (estabilidade), Lei 8.112/90 (PAD, demissão, reintegração), \
+  Súmula 20 STJ (proibição de reformatio in pejus no processo administrativo).
+- Mandado de segurança: Lei 12.016/09 — prazo DECADENCIAL de 120 dias (art. 23), direito líquido \
+  e certo, ato ilegal/abusivo de autoridade pública.
+- Responsabilidade do Estado: CF art. 37 §6º — teoria do risco administrativo (objetiva); \
+  excludentes: culpa exclusiva da vítima, caso fortuito/força maior.""",
+}
+
+
+def _get_system(tipo_causa: Optional[str] = None) -> str:
+    """Retorna SYSTEM_BASE + adendo especializado conforme o tipo de causa."""
+    base = SYSTEM_BASE
+    if tipo_causa:
+        chave = tipo_causa.lower().strip()
+        # normaliza variantes
+        if "trabalh" in chave:
+            chave = "trabalhista"
+        elif "consumid" in chave:
+            chave = "consumidor"
+        elif "tribut" in chave or "fiscal" in chave:
+            chave = "tributario"
+        elif "crimin" in chave or "penal" in chave:
+            chave = "criminal"
+        elif "admin" in chave:
+            chave = "administrativo"
+        elif "civil" in chave:
+            chave = "civil"
+        adendo = _SYSTEM_POR_AREA.get(chave)
+        if adendo:
+            base = base + adendo
+    return base
+
 
 PROMPTS = {
 
@@ -367,6 +492,48 @@ JSON schema:
     }
   ],
   "recomendacao_principal": "string",
+  "confianca": 0.0
+}""",
+    },
+
+    # ── DESCRIÇÃO FIEL DE DOCUMENTOS ─────────────────────────────────────────
+    "descricao_documentos": {
+        "instrucao": """Produza uma descrição FIEL e DETALHADA de cada peça processual dos autos.
+
+INSTRUÇÕES CRÍTICAS:
+- Para cada peça: descreva O QUE ELA É e O QUE ELA DIZ — não interprete, não analise o mérito.
+- Seja fiel ao texto original: nas partes decisórias, reproduza as palavras exatas.
+- Para sentenças e acórdãos: transcreva o dispositivo completo (a parte que começa "JULGO" / \
+  "DECIDE" / "ACORDAM") — não resuma, reproduza literalmente.
+- Para petições: liste todos os pedidos na ordem em que foram formulados.
+- Para decisões interlocutórias: reproduza o trecho decisório exato e a determinação às partes.
+- Para certidões: descreva o que certifica, a data e quem assinou.
+- Inclua sempre: quem elaborou/assinou, data, órgão/juízo, valores mencionados.
+- "relevancia_documental" avalia a função processual da peça (não o mérito).
+
+JSON schema:
+{
+  "documentos": [
+    {
+      "tipo_peca": "string",
+      "paginas": "string (ex: pág. 1-15)",
+      "data_documento": "YYYY-MM-DD ou null",
+      "data_aproximada": false,
+      "autor": "string (quem assinou/elaborou — nome completo e qualificação)",
+      "destinatario": "string ou null",
+      "orgao_juizo": "string ou null (vara, câmara, tribunal ou órgão)",
+      "descricao_fiel": "string (descrição objetiva do conteúdo — mínimo 80 palavras)",
+      "transcricao_dispositivo": "string ou null (dispositivo literal se for decisão/sentença/acórdão)",
+      "pedidos": ["string — lista dos pedidos se for petição, ou []"],
+      "fundamentos_legais_citados": ["artigos, súmulas e precedentes mencionados na peça, ou []"],
+      "valores_mencionados": ["valores monetários relevantes com contexto, ou []"],
+      "partes_mencionadas": ["nome — papel processual, ou []"],
+      "funcao_processual": "string (qual o papel desta peça no processo)",
+      "relevancia_documental": "essencial | alta | media | baixa"
+    }
+  ],
+  "total_pecas_descritas": 0,
+  "observacoes_gerais": "string ou null",
   "confianca": 0.0
 }""",
     },
@@ -767,8 +934,8 @@ async def _cronologia_por_peca(
     client: anthropic.Anthropic,
 ) -> list[dict]:
     """
-    Estratégia piece-anchored para cronologia:
-    - Processa cada peça individualmente com contexto do tipo de peça
+    Estratégia piece-anchored PARALELA para cronologia:
+    - Processa todas as peças em paralelo (semáforo de 5 chamadas simultâneas)
     - Usa Sonnet para peças prioritárias, Haiku para secundárias
     - Deduplicação precisa baseada em data+tipo+descricao
     """
@@ -779,30 +946,36 @@ async def _cronologia_por_peca(
         return []
 
     total = len(pecas_com_texto)
-    logger.info(f"Cronologia piece-anchored: {total} peças com texto")
+    logger.info(f"Cronologia piece-anchored PARALELA: {total} peças com texto")
 
-    todos_eventos: list[dict] = []
+    sem  = asyncio.Semaphore(5)   # máx 5 chamadas simultâneas à API
     loop = asyncio.get_event_loop()
 
-    for idx, peca in enumerate(pecas_com_texto, start=1):
+    async def processar_uma(idx: int, peca: dict) -> list[dict]:
         tipo_peca   = peca.get("tipo_peca", "outro")
         use_premium = tipo_peca in PECAS_PREMIUM
         model_label = "Sonnet" if use_premium else "Haiku"
         pags        = f"pág. {peca.get('pagina_inicio')}-{peca.get('pagina_fim')}"
-
         logger.info(f"  [{idx}/{total}] {tipo_peca} ({pags}) → {model_label}")
+        async with sem:
+            evs = await loop.run_in_executor(
+                None,
+                functools.partial(_extrair_eventos_peca_sync, peca, idx, total, client, use_premium),
+            )
+        logger.info(f"    [{idx}/{total}] → {len(evs)} eventos")
+        return evs
 
-        evs = await loop.run_in_executor(
-            None,
-            functools.partial(
-                _extrair_eventos_peca_sync,
-                peca, idx, total, client, use_premium,
-            ),
-        )
-        todos_eventos.extend(evs)
-        logger.info(f"    → {len(evs)} eventos extraídos")
+    tarefas    = [processar_uma(idx, peca) for idx, peca in enumerate(pecas_com_texto, start=1)]
+    resultados = await asyncio.gather(*tarefas, return_exceptions=True)
 
-    # Deduplicação: mesma data + tipo + início da descrição (60 chars)
+    todos_eventos: list[dict] = []
+    for r in resultados:
+        if isinstance(r, Exception):
+            logger.warning(f"Peça falhou na extração de cronologia: {r}")
+        else:
+            todos_eventos.extend(r)
+
+    # Deduplicação: mesma data + tipo + início da descrição (80 chars)
     seen: set[tuple] = set()
     dedup: list[dict] = []
     for ev in todos_eventos:
@@ -817,6 +990,127 @@ async def _cronologia_por_peca(
 
     logger.info(f"Cronologia: {len(todos_eventos)} eventos → {len(dedup)} após dedup")
     return dedup
+
+
+# ── Descrição fiel por peça ───────────────────────────────────────────────────
+
+def _descrever_peca_sync(
+    peca: dict,
+    idx: int,
+    total: int,
+    client: anthropic.Anthropic,
+) -> dict:
+    """
+    Descreve UMA peça processual de forma fiel usando Haiku.
+    Retorna um dict conforme o schema de descricao_documentos.
+    """
+    texto     = peca.get("conteudo_texto") or ""
+    tipo_peca = peca.get("tipo_peca", "outro")
+    pags      = f"pág. {peca.get('pagina_inicio')}-{peca.get('pagina_fim')}"
+
+    # Para peças muito grandes: mantém início (cabeçalho/qualificação) + fim (dispositivo/assinatura)
+    max_chars = 120_000
+    if len(texto) > max_chars:
+        metade = max_chars // 2
+        texto = texto[:metade] + "\n\n[... trecho central omitido por tamanho ...]\n\n" + texto[-metade:]
+
+    prompt = f"""Descreva fielmente esta peça processual ({tipo_peca.replace('_', ' ').upper()}, {pags}).
+
+Para sentenças/acórdãos/decisões: TRANSCREVA O DISPOSITIVO LITERALMENTE.
+Para petições: LISTE TODOS OS PEDIDOS na ordem em que aparecem.
+
+TEXTO DA PEÇA:
+{texto}
+
+Responda SOMENTE com JSON válido (sem markdown):
+{{
+  "tipo_peca": "{tipo_peca}",
+  "paginas": "{pags}",
+  "data_documento": "YYYY-MM-DD ou null",
+  "data_aproximada": false,
+  "autor": "quem assinou ou null",
+  "destinatario": "a quem se dirige ou null",
+  "orgao_juizo": "vara/câmara/tribunal ou null",
+  "descricao_fiel": "descrição objetiva e fiel — mínimo 80 palavras",
+  "transcricao_dispositivo": "dispositivo literal se for decisão/sentença/acórdão, ou null",
+  "pedidos": [],
+  "fundamentos_legais_citados": [],
+  "valores_mencionados": [],
+  "partes_mencionadas": [],
+  "funcao_processual": "qual o papel desta peça no processo",
+  "relevancia_documental": "essencial | alta | media | baixa"
+}}"""
+
+    try:
+        msg = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=2_500,
+            system=SYSTEM_BASE,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = msg.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1].rsplit("```", 1)[0]
+        return json.loads(raw)
+    except Exception as e:
+        logger.warning(f"  Peça {idx}/{total} ({tipo_peca}) falhou na descrição: {e}")
+        return {
+            "tipo_peca":             tipo_peca,
+            "paginas":               pags,
+            "data_documento":        None,
+            "data_aproximada":       False,
+            "autor":                 None,
+            "destinatario":          None,
+            "orgao_juizo":           None,
+            "descricao_fiel":        "(falha na extração automática)",
+            "transcricao_dispositivo": None,
+            "pedidos":               [],
+            "fundamentos_legais_citados": [],
+            "valores_mencionados":   [],
+            "partes_mencionadas":    [],
+            "funcao_processual":     tipo_peca.replace("_", " "),
+            "relevancia_documental": "media",
+        }
+
+
+async def _descricao_por_peca(
+    pecas: list[dict],
+    client: anthropic.Anthropic,
+) -> list[dict]:
+    """
+    Descreve todas as peças em PARALELO (semáforo de 5 simultâneas).
+    """
+    import asyncio
+
+    pecas_com_texto = [p for p in pecas if (p.get("conteudo_texto") or "").strip()]
+    if not pecas_com_texto:
+        return []
+
+    total = len(pecas_com_texto)
+    logger.info(f"Descrição de documentos PARALELA: {total} peças")
+
+    sem  = asyncio.Semaphore(5)
+    loop = asyncio.get_event_loop()
+
+    async def descrever_uma(idx: int, peca: dict) -> dict:
+        async with sem:
+            return await loop.run_in_executor(
+                None,
+                functools.partial(_descrever_peca_sync, peca, idx, total, client),
+            )
+
+    tarefas    = [descrever_uma(idx, peca) for idx, peca in enumerate(pecas_com_texto, start=1)]
+    resultados = await asyncio.gather(*tarefas, return_exceptions=True)
+
+    docs: list[dict] = []
+    for r in resultados:
+        if isinstance(r, Exception):
+            logger.warning(f"Peça falhou na descrição: {r}")
+        else:
+            docs.append(r)
+
+    logger.info(f"Descrição concluída: {len(docs)} peças descritas")
+    return docs
 
 
 # ── Wrapper assíncrono para Claude ────────────────────────────────────────────
@@ -854,13 +1148,50 @@ async def gerar_analise(
         f"tipo '{tipo}'"
     )
 
+    # ── Auto-detecção do tipo de causa para system prompt especializado ───────
+    tipo_causa_detectado: Optional[str] = None
+    try:
+        analises_prev = await sb_run(
+            lambda: sb.table("analises")
+            .select("conteudo_json")
+            .eq("processo_id", str(processo_id))
+            .in_("tipo", ["estado_atual", "diagnostico_completo", "resumo_executivo"])
+            .order("created_at", desc=True)
+            .limit(3)
+            .execute()
+        )
+        for a in (analises_prev.data or []):
+            cj = a.get("conteudo_json") or {}
+            tc = cj.get("tipo_causa")
+            if tc:
+                tipo_causa_detectado = tc
+                break
+    except Exception:
+        pass
+
+    system_prompt = _get_system(tipo_causa_detectado)
+    if tipo_causa_detectado:
+        logger.info(f"Sistema especializado: {tipo_causa_detectado}")
+
     # ── Estratégia de contexto ────────────────────────────────────────────────
     conteudo_json: dict = {}
     tokens_input  = 0
     tokens_output = 0
     estrategia    = "desconhecida"
 
-    if tipo == "cronologia":
+    if tipo == "descricao_documentos":
+        # Processa cada peça individualmente com Haiku para máxima fidelidade
+        logger.info("Descrição de documentos: processamento peça a peça")
+        docs = await _descricao_por_peca(pecas, client)
+        estrategia = "piece_by_piece"
+        conteudo_json = {
+            "documentos":          docs,
+            "total_pecas_descritas": len(docs),
+            "observacoes_gerais":  None,
+            "confianca":           0.88 if docs else 0.3,
+        }
+
+    elif tipo == "cronologia":
         # Sempre usa piece-anchored — mais preciso independente do tamanho
         logger.info("Cronologia: usando estratégia piece-anchored")
         eventos = await _cronologia_por_peca(pecas, client)
@@ -896,7 +1227,7 @@ async def gerar_analise(
                 client,
                 model=settings.llm_model,
                 max_tokens=8192,
-                system=SYSTEM_BASE,
+                system=system_prompt,
                 messages=[{"role": "user", "content": consolidar_prompt}],
             )
             tokens_input  = msg_final.usage.input_tokens
@@ -934,7 +1265,7 @@ async def gerar_analise(
             client,
             model=settings.llm_model,
             max_tokens=8192,
-            system=SYSTEM_BASE,
+            system=system_prompt,
             messages=[{"role": "user", "content": user_content}],
         )
         tokens_input  = msg.usage.input_tokens
@@ -1020,6 +1351,15 @@ async def gerar_analise(
 # ── Streaming de análise (SSE) ────────────────────────────────────────────────
 
 _PASSOS_STREAM: dict[str, list[tuple[str, int]]] = {
+    "descricao_documentos": [
+        ("Carregando peças do processo…",            5),
+        ("Descrevendo petições e manifestações…",   18),
+        ("Descrevendo despachos e decisões…",       35),
+        ("Descrevendo sentenças e acórdãos…",       55),
+        ("Descrevendo recursos e contrarrazões…",   72),
+        ("Descrevendo demais documentos…",          86),
+        ("Consolidando descrições…",                93),
+    ],
     "cronologia": [
         ("Carregando peças do processo…",          5),
         ("Extraindo atos da petição inicial…",     12),
