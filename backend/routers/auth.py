@@ -1,12 +1,14 @@
 """
-Auth router — login/logout via Supabase Auth (supabase-py client).
+Auth router — login/logout via Supabase Auth REST API (httpx).
 """
+import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from ..database import get_supabase, sb_run
+from ..config import get_settings
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
+settings = get_settings()
 
 
 class LoginRequest(BaseModel):
@@ -17,31 +19,41 @@ class LoginRequest(BaseModel):
 @router.post("/login")
 async def login(body: LoginRequest):
     try:
-        sb = get_supabase()
-        result = await sb_run(
-            lambda: sb.auth.sign_in_with_password(
-                {"email": body.email, "password": body.password}
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{settings.supabase_url}/auth/v1/token?grant_type=password",
+                headers={
+                    "apikey": settings.supabase_service_key,
+                    "Content-Type": "application/json",
+                },
+                json={"email": body.email, "password": body.password},
+                timeout=15.0,
             )
-        )
     except Exception as exc:
-        msg = str(exc)
-        # supabase-py raises AuthApiError with message "Invalid login credentials"
-        if "invalid" in msg.lower() or "credentials" in msg.lower() or "email" in msg.lower():
-            raise HTTPException(status_code=401, detail="Credenciais inválidas")
-        raise HTTPException(status_code=503, detail=f"Serviço de autenticação indisponível: {msg}")
+        raise HTTPException(status_code=503, detail=f"Serviço de autenticação indisponível: {exc}")
 
-    if not result or not result.session:
-        raise HTTPException(status_code=401, detail="Credenciais inválidas")
+    if resp.status_code != 200:
+        detail = "Credenciais inválidas"
+        try:
+            err = resp.json()
+            detail = err.get("error_description") or err.get("msg") or detail
+        except Exception:
+            pass
+        raise HTTPException(status_code=401, detail=detail)
 
-    return {
-        "access_token": result.session.access_token,
-        "refresh_token": result.session.refresh_token,
-        "token_type": "bearer",
-        "user": {
-            "id": str(result.user.id),
-            "email": result.user.email,
-        },
-    }
+    try:
+        data = resp.json()
+        return {
+            "access_token": data["access_token"],
+            "refresh_token": data.get("refresh_token"),
+            "token_type": "bearer",
+            "user": {
+                "id": data["user"]["id"],
+                "email": data["user"]["email"],
+            },
+        }
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail=f"Resposta inesperada do Supabase: {exc}")
 
 
 @router.post("/logout")
