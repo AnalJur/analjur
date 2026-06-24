@@ -239,6 +239,8 @@ export interface TimesheetEntry {
   descricao: string;
   tipo: string;
   duracao_min: number;
+  valor_hora: number;
+  valor_total: number;
   data_lancamento: string;
   created_at: string;
 }
@@ -247,6 +249,7 @@ export interface TimesheetResult {
   entries: TimesheetEntry[];
   total_min: number;
   total_horas: number;
+  total_valor: number;
 }
 
 export interface EventoAgenda {

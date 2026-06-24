@@ -208,18 +208,33 @@ function Modal({ title, onClose, children, wide }: {
 
 // ── Tabs ──────────────────────────────────────────────────────────────────
 
+// ── Ícones de tab ─────────────────────────────────────────────────────────
+const TAB_ICONS: Record<string, React.ReactNode> = {
+  documentos:   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>,
+  pecas:        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>,
+  cronologia:   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><path d="M4.93 4.93l2.83 2.83"/><path d="M16.24 16.24l2.83 2.83"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><path d="M4.93 19.07l2.83-2.83"/><path d="M16.24 7.76l2.83-2.83"/></svg>,
+  prazos:       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
+  analises:     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>,
+  revisao:      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>,
+  atendimentos: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
+  minutas:      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>,
+  snapshots:    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="1 4 1 10 7 10"/><polyline points="23 20 23 14 17 14"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>,
+  chat:         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>,
+  atividade:    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>,
+};
+
 const TABS = [
   { id: "documentos",   label: "Documentos" },
   { id: "pecas",        label: "Peças" },
   { id: "cronologia",   label: "Cronologia" },
-  { id: "prazos",       label: "⏰ Prazos" },
+  { id: "prazos",       label: "Prazos" },
   { id: "analises",     label: "Análises IA" },
   { id: "revisao",      label: "Revisão" },
-  { id: "atendimentos", label: "📋 Atendimentos" },
+  { id: "atendimentos", label: "Atendimentos" },
   { id: "minutas",      label: "Minutas" },
   { id: "snapshots",    label: "Versões" },
   { id: "chat",         label: "Chat IA" },
-  { id: "atividade",    label: "⏱ Atividade" },
+  { id: "atividade",    label: "Atividade" },
 ] as const;
 type Tab = (typeof TABS)[number]["id"];
 
@@ -4102,18 +4117,22 @@ function TimesheetTarefa({ processoId, tarefaId, tarefaTitulo }: {
   const [entries, setEntries]     = useState<TimesheetEntry[]>([]);
   const [loading, setLoading]     = useState(true);
   const [totalMin, setTotalMin]   = useState(0);
-  const [form, setForm]           = useState({ descricao: "", tipo: "trabalho", duracao_min: 60, data_lancamento: new Date().toISOString().slice(0,10) });
+  const [totalValor, setTotalValor] = useState(0);
+  const [form, setForm]           = useState({
+    descricao: "", tipo: "trabalho", duracao_min: 60,
+    data_lancamento: new Date().toISOString().slice(0, 10),
+    valor_hora: 0,
+  });
   const [salvando, setSalvando]   = useState(false);
   const [timer, setTimer]         = useState<{ rodando: boolean; inicio: number; elapsed: number }>({ rodando: false, inicio: 0, elapsed: 0 });
   const intervalRef               = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     api.timesheet.listar(processoId, tarefaId)
-      .then(r => { setEntries(r.entries); setTotalMin(r.total_min); })
+      .then(r => { setEntries(r.entries); setTotalMin(r.total_min); setTotalValor(r.total_valor ?? 0); })
       .finally(() => setLoading(false));
   }, [processoId, tarefaId]);
 
-  // Timer
   function iniciarTimer() {
     setTimer({ rodando: true, inicio: Date.now(), elapsed: 0 });
     intervalRef.current = setInterval(() => {
@@ -4125,7 +4144,6 @@ function TimesheetTarefa({ processoId, tarefaId, tarefaTitulo }: {
     if (intervalRef.current) clearInterval(intervalRef.current);
     const minutos = Math.max(1, Math.round(timer.elapsed / 60));
     setTimer({ rodando: false, inicio: 0, elapsed: 0 });
-    // Salva automaticamente
     await lancar({ ...form, descricao: form.descricao || tarefaTitulo, duracao_min: minutos });
   }
 
@@ -4137,16 +4155,19 @@ function TimesheetTarefa({ processoId, tarefaId, tarefaTitulo }: {
       const e = await api.timesheet.lancar(processoId, { ...body, tarefa_id: tarefaId });
       setEntries(prev => [e, ...prev]);
       setTotalMin(t => t + body.duracao_min);
+      const vt = body.valor_hora > 0 ? Math.round(body.valor_hora * body.duracao_min / 60 * 100) / 100 : 0;
+      setTotalValor(t => Math.round((t + vt) * 100) / 100);
       setForm(f => ({ ...f, descricao: "", duracao_min: 60 }));
     } catch (err) {
       alert(err instanceof Error ? err.message : "Erro ao lançar horas");
     } finally { setSalvando(false); }
   }
 
-  async function deletarEntry(id: string, min: number) {
+  async function deletarEntry(id: string, min: number, vt: number) {
     await api.timesheet.deletar(processoId, id);
     setEntries(prev => prev.filter(e => e.id !== id));
     setTotalMin(t => t - min);
+    setTotalValor(t => Math.max(0, Math.round((t - vt) * 100) / 100));
   }
 
   function fmtTime(sec: number) {
@@ -4155,28 +4176,48 @@ function TimesheetTarefa({ processoId, tarefaId, tarefaTitulo }: {
     const s = sec % 60;
     return `${h > 0 ? h + "h " : ""}${m}m ${s}s`;
   }
-
   function fmtMin(min: number) {
     const h = Math.floor(min / 60); const m = min % 60;
     return h > 0 ? `${h}h${m > 0 ? `${m}min` : ""}` : `${m}min`;
   }
+  function fmtBRL(v: number) {
+    return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  }
+
+  const valorPreview = form.valor_hora > 0
+    ? Math.round(form.valor_hora * form.duracao_min / 60 * 100) / 100
+    : 0;
 
   const TIPOS_TS = ["trabalho", "reuniao", "pesquisa", "audiencia", "deslocamento"];
 
   return (
     <div className="mt-3 border-t border-border pt-3 space-y-3">
-      <div className="flex items-center justify-between">
-        <p className="text-xs font-semibold text-muted uppercase tracking-wide">⏱ Timesheet</p>
-        {totalMin > 0 && (
-          <span className="text-xs font-bold text-gold bg-gold/10 px-2.5 py-1 rounded-full">
-            Total: {fmtMin(totalMin)}
-          </span>
-        )}
+      {/* Cabeçalho com totais */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-1.5">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gold">
+            <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+          </svg>
+          <p className="text-xs font-bold text-text-main uppercase tracking-wide">Timesheet</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {totalMin > 0 && (
+            <span className="text-xs font-bold text-gold bg-gold/10 px-2.5 py-1 rounded-full">
+              {fmtMin(totalMin)}
+            </span>
+          )}
+          {totalValor > 0 && (
+            <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
+              {fmtBRL(totalValor)}
+            </span>
+          )}
+        </div>
       </div>
 
-      {/* Timer */}
-      <div className="bg-surface border border-border rounded-xl p-3">
+      {/* Painel timer / lançamento manual */}
+      <div className="bg-[#0a1628]/[0.03] border border-border rounded-xl p-3 space-y-2">
         {timer.rodando ? (
+          /* ── Timer rodando ── */
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <span className="relative flex h-2.5 w-2.5">
@@ -4185,50 +4226,86 @@ function TimesheetTarefa({ processoId, tarefaId, tarefaTitulo }: {
               </span>
               <span className="text-sm font-mono font-bold text-text-main">{fmtTime(timer.elapsed)}</span>
               <span className="text-xs text-muted">gravando…</span>
+              {form.valor_hora > 0 && (
+                <span className="text-xs text-emerald-600 font-semibold">
+                  ≈ {fmtBRL(form.valor_hora * timer.elapsed / 3600)}
+                </span>
+              )}
             </div>
             <button onClick={pararTimer}
-              className="text-xs font-bold px-3 py-1.5 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 transition-colors">
-              ⏹ Parar e salvar
+              className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 transition-colors">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16"/></svg>
+              Parar e salvar
             </button>
           </div>
         ) : (
-          <div className="space-y-2">
+          /* ── Formulário de lançamento ── */
+          <>
+            {/* Linha 1: descrição + tipo */}
             <div className="grid grid-cols-3 gap-2">
               <input
                 className="col-span-2 border border-border rounded-lg px-3 py-1.5 text-xs bg-bg text-text-main focus:outline-none focus:ring-1 focus:ring-gold/40"
-                placeholder="Descrição (ex: Elaboração da petição)"
+                placeholder="Descrição (ex: Elaboração da petição inicial)"
                 value={form.descricao}
                 onChange={e => setForm(f => ({ ...f, descricao: e.target.value }))}
               />
-              <select
-                className="border border-border rounded-lg px-2 py-1.5 text-xs bg-bg text-text-main focus:outline-none"
-                value={form.tipo}
-                onChange={e => setForm(f => ({ ...f, tipo: e.target.value }))}>
+              <select className="border border-border rounded-lg px-2 py-1.5 text-xs bg-bg text-text-main focus:outline-none"
+                value={form.tipo} onChange={e => setForm(f => ({ ...f, tipo: e.target.value }))}>
                 {TIPOS_TS.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
-            <div className="flex gap-2">
-              <input type="number" min={1} step={5}
-                className="w-24 border border-border rounded-lg px-3 py-1.5 text-xs bg-bg text-text-main focus:outline-none focus:ring-1 focus:ring-gold/40"
-                value={form.duracao_min}
-                onChange={e => setForm(f => ({ ...f, duracao_min: Number(e.target.value) }))}
-              />
-              <span className="text-xs text-muted self-center">min</span>
+
+            {/* Linha 2: duração + valor/hora + data */}
+            <div className="grid grid-cols-5 gap-2 items-center">
+              <div className="flex items-center gap-1 col-span-2">
+                <input type="number" min={1} step={5}
+                  className="w-full border border-border rounded-lg px-3 py-1.5 text-xs bg-bg text-text-main focus:outline-none focus:ring-1 focus:ring-gold/40"
+                  value={form.duracao_min}
+                  onChange={e => setForm(f => ({ ...f, duracao_min: Number(e.target.value) }))}
+                />
+                <span className="text-xs text-muted whitespace-nowrap">min</span>
+              </div>
+              <div className="flex items-center gap-1 col-span-2 relative">
+                <span className="absolute left-2.5 text-xs text-muted pointer-events-none">R$</span>
+                <input type="number" min={0} step={10}
+                  className="w-full border border-border rounded-lg pl-7 pr-2 py-1.5 text-xs bg-bg text-text-main focus:outline-none focus:ring-1 focus:ring-gold/40"
+                  placeholder="0,00/h"
+                  value={form.valor_hora || ""}
+                  onChange={e => setForm(f => ({ ...f, valor_hora: Number(e.target.value) }))}
+                />
+              </div>
               <input type="date"
-                className="flex-1 border border-border rounded-lg px-3 py-1.5 text-xs bg-bg text-text-main focus:outline-none"
+                className="col-span-1 border border-border rounded-lg px-2 py-1.5 text-xs bg-bg text-text-main focus:outline-none"
                 value={form.data_lancamento}
                 onChange={e => setForm(f => ({ ...f, data_lancamento: e.target.value }))}
               />
-              <button onClick={() => lancar(form)} disabled={salvando}
-                className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-gold text-navy hover:bg-gold-light transition-colors disabled:opacity-50">
-                {salvando ? "…" : "Lançar"}
-              </button>
-              <button onClick={iniciarTimer}
-                className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-border hover:border-gold/40 text-muted hover:text-text-main transition-colors">
-                ▶ Timer
-              </button>
             </div>
-          </div>
+
+            {/* Preview do valor + botões */}
+            <div className="flex items-center gap-2 flex-wrap">
+              {valorPreview > 0 && (
+                <span className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-lg font-semibold">
+                  Valor: {fmtBRL(valorPreview)}
+                </span>
+              )}
+              <div className="flex gap-2 ml-auto">
+                <button onClick={iniciarTimer}
+                  className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border border-gold/40 text-gold hover:bg-gold/5 transition-colors">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  Iniciar timer
+                </button>
+                <button onClick={() => lancar(form)} disabled={salvando}
+                  className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-gold text-navy hover:bg-gold-light transition-colors disabled:opacity-50">
+                  {salvando ? "…" : (
+                    <>
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                      Lançar
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </>
         )}
       </div>
 
@@ -4236,20 +4313,27 @@ function TimesheetTarefa({ processoId, tarefaId, tarefaTitulo }: {
       {loading ? (
         <div className="h-8 bg-bg rounded animate-pulse" />
       ) : entries.length > 0 ? (
-        <div className="space-y-1 max-h-40 overflow-y-auto">
+        <div className="space-y-1 max-h-48 overflow-y-auto">
           {entries.map(e => (
             <div key={e.id}
-              className="flex items-center justify-between gap-2 px-3 py-1.5 bg-bg rounded-lg border border-border">
-              <span className="text-xs text-muted">{new Date(e.data_lancamento + "T00:00:00").toLocaleDateString("pt-BR")}</span>
+              className="flex items-center gap-2 px-3 py-2 bg-bg rounded-xl border border-border group hover:border-gold/20 transition-colors">
+              <span className="text-[10px] text-muted flex-shrink-0">
+                {new Date(e.data_lancamento + "T00:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}
+              </span>
               <span className="text-xs text-text-main flex-1 truncate">{e.descricao}</span>
-              <span className="text-xs font-semibold text-gold">{fmtMin(e.duracao_min)}</span>
-              <button onClick={() => deletarEntry(e.id, e.duracao_min)}
-                className="text-xs text-muted hover:text-danger transition-colors">✕</button>
+              <span className="text-xs font-semibold text-gold flex-shrink-0">{fmtMin(e.duracao_min)}</span>
+              {(e.valor_total ?? 0) > 0 && (
+                <span className="text-xs font-bold text-emerald-600 flex-shrink-0">{fmtBRL(e.valor_total)}</span>
+              )}
+              <button onClick={() => deletarEntry(e.id, e.duracao_min, e.valor_total ?? 0)}
+                className="opacity-0 group-hover:opacity-100 text-xs text-muted hover:text-danger transition-all flex-shrink-0">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
             </div>
           ))}
         </div>
       ) : (
-        <p className="text-xs text-muted text-center py-2">Nenhum lançamento ainda</p>
+        <p className="text-xs text-muted text-center py-3">Nenhum lançamento ainda</p>
       )}
     </div>
   );
@@ -4598,215 +4682,238 @@ export default function ProcessoPage() {
   );
   if (!processo) return null;
 
+  const statusStyle: Record<string, { bg: string; text: string; dot: string; label: string }> = {
+    ativo:     { bg: "bg-emerald-50",  text: "text-emerald-700", dot: "bg-emerald-500", label: "Ativo" },
+    arquivado: { bg: "bg-slate-100",   text: "text-slate-500",   dot: "bg-slate-400",   label: "Arquivado" },
+    suspenso:  { bg: "bg-amber-50",    text: "text-amber-700",   dot: "bg-amber-500",   label: "Suspenso" },
+    encerrado: { bg: "bg-rose-50",     text: "text-rose-700",    dot: "bg-rose-500",    label: "Encerrado" },
+  };
+  const ss = statusStyle[processo.status] ?? statusStyle.arquivado;
+
   return (
-    <div className="flex min-h-screen bg-bg">
+    <div className="flex h-screen bg-[#f4f5f7] overflow-hidden">
       <Sidebar />
-      <div className="flex-1 sm:ml-60 flex flex-col">
+      <div className="flex-1 sm:ml-60 flex flex-col min-w-0 overflow-hidden">
         <TopBar
           title={processo.numero_cnj ?? processo.id.slice(0, 8) + "…"}
-          subtitle={[processo.tribunal, processo.vara, processo.assunto].filter(Boolean).join(" · ") || "Processo Jurídico"}
+          subtitle={[processo.tribunal, processo.vara].filter(Boolean).join(" · ") || "Processo Jurídico"}
         />
-        <main className="flex-1 p-6 sm:p-8">
-          {/* Botão voltar */}
-          <button
-            onClick={() => router.push("/dashboard")}
-            className="flex items-center gap-1.5 text-xs font-semibold text-muted hover:text-text-main mb-4 group transition-colors"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="group-hover:-translate-x-0.5 transition-transform">
-              <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
-            </svg>
-            Voltar para Dashboard
-          </button>
 
-          {/* Cabeçalho do processo — info + botão editar */}
-          <div className="bg-surface rounded-xl border border-border p-4 mb-5 flex flex-wrap items-start justify-between gap-3">
-            <div className="flex-1 min-w-0 space-y-1.5">
-              {/* Número CNJ */}
-              <p className="text-base font-bold text-text-main font-mono">
-                {processo.numero_cnj ?? <span className="text-muted italic text-sm">Sem número CNJ</span>}
-              </p>
+        <main className="flex-1 overflow-y-auto overflow-x-hidden">
+          {/* ── HERO HEADER ──────────────────────────────────────────── */}
+          <div className="bg-navy relative overflow-hidden">
+            {/* Ornamento de fundo */}
+            <div className="absolute inset-0 opacity-5 pointer-events-none select-none"
+              style={{ backgroundImage: "radial-gradient(circle at 80% 50%, #C9A84C 0%, transparent 60%)" }} />
+            <div className="absolute right-0 top-0 bottom-0 w-1 bg-gold opacity-60" />
 
-              {/* Tribunal · Vara · Assunto */}
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
-                {processo.tribunal && <span className="font-semibold text-text-main">{processo.tribunal}</span>}
-                {processo.vara     && <><span className="text-border">·</span><span>{processo.vara}</span></>}
-                {processo.assunto  && <><span className="text-border">·</span><span className="truncate max-w-xs">{processo.assunto}</span></>}
+            <div className="relative px-6 pt-5 pb-0">
+              {/* Breadcrumb */}
+              <button onClick={() => router.push("/dashboard")}
+                className="flex items-center gap-1.5 text-white/40 hover:text-white/80 text-xs font-medium mb-4 transition-colors group">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+                  className="group-hover:-translate-x-0.5 transition-transform">
+                  <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
+                </svg>
+                Dashboard
+                <span className="text-white/20 mx-1">›</span>
+                <span className="text-white/60">{processo.numero_cnj ?? "Processo"}</span>
+              </button>
+
+              <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 pb-5">
+                {/* Info principal */}
+                <div className="flex-1 min-w-0 space-y-3">
+                  {/* Número CNJ */}
+                  <div className="flex items-start gap-3">
+                    <div className="w-1 h-10 bg-gold rounded-full flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-white font-bold text-xl font-mono leading-tight tracking-tight">
+                        {processo.numero_cnj ?? <span className="text-white/40 italic text-base font-sans font-normal">Sem número CNJ</span>}
+                      </p>
+                      {processo.assunto && (
+                        <p className="text-white/60 text-sm mt-1 leading-snug">{processo.assunto}</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Tribunal · Vara */}
+                  {(processo.tribunal || processo.vara) && (
+                    <div className="flex items-center gap-2 flex-wrap ml-4">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gold/60 flex-shrink-0">
+                        <rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/>
+                      </svg>
+                      {processo.tribunal && <span className="text-white/70 text-xs font-semibold">{processo.tribunal}</span>}
+                      {processo.vara && <><span className="text-white/20">·</span><span className="text-white/50 text-xs">{processo.vara}</span></>}
+                    </div>
+                  )}
+
+                  {/* Badges */}
+                  <div className="flex items-center flex-wrap gap-2 ml-4">
+                    {/* Status */}
+                    <span className={`inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full ${ss.bg} ${ss.text}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${ss.dot}`} />
+                      {ss.label}
+                    </span>
+                    {/* Cliente */}
+                    {processo.cliente_nome && processo.cliente_id && (
+                      <a href={`/clientes/${processo.cliente_id}`}
+                        className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-gold/15 text-gold hover:bg-gold/25 transition-colors">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+                        </svg>
+                        {processo.cliente_nome}
+                      </a>
+                    )}
+                    {/* Responsável */}
+                    {processo.responsavel && (
+                      <span className="inline-flex items-center gap-1.5 text-xs text-white/40">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+                        </svg>
+                        {processo.responsavel}
+                      </span>
+                    )}
+                    {/* Tags */}
+                    {processo.tags?.map(tag => (
+                      <span key={tag} className="text-xs bg-white/10 text-white/60 px-2 py-0.5 rounded-full">{tag}</span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Ações */}
+                <div className="flex items-center gap-2 flex-wrap lg:flex-nowrap lg:flex-shrink-0">
+                  <button onClick={handleGerarRelatorio} disabled={gerandoRelatorio}
+                    title="Gerar relatório PDF"
+                    className="flex items-center gap-2 text-xs font-semibold text-gold border border-gold/40 hover:border-gold hover:bg-gold/10 px-3 py-2 rounded-xl transition-all disabled:opacity-50 whitespace-nowrap">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                      <polyline points="14 2 14 8 20 8"/>
+                      <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+                    </svg>
+                    {gerandoRelatorio ? "Gerando…" : "PDF"}
+                  </button>
+                  <button onClick={handleSyncDataJud} disabled={sincronizando}
+                    title="Sync DataJud CNJ"
+                    className="flex items-center gap-2 text-xs font-semibold text-white/60 border border-white/15 hover:border-white/30 hover:text-white px-3 py-2 rounded-xl transition-all disabled:opacity-50 whitespace-nowrap">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                      className={sincronizando ? "animate-spin" : ""}>
+                      <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+                      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                    </svg>
+                    {sincronizando ? "Sync…" : "DataJud"}
+                  </button>
+                  <button onClick={() => setModalEditar(true)}
+                    title="Editar processo"
+                    className="flex items-center gap-2 text-xs font-semibold text-white/60 border border-white/15 hover:border-white/30 hover:text-white px-3 py-2 rounded-xl transition-all whitespace-nowrap">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                    </svg>
+                    Editar
+                  </button>
+                </div>
               </div>
 
-              {/* Status + Cliente + Responsável + Tags */}
-              <div className="flex flex-wrap items-center gap-2 mt-1">
-                {{
-                  ativo:     "bg-green-100 text-green-700",
-                  arquivado: "bg-gray-100 text-gray-500",
-                  suspenso:  "bg-yellow-100 text-yellow-700",
-                }[processo.status] && (
-                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${{
-                    ativo: "bg-green-100 text-green-700",
-                    arquivado: "bg-gray-100 text-gray-500",
-                    suspenso: "bg-yellow-100 text-yellow-700",
-                  }[processo.status] ?? "bg-gray-100 text-gray-500"}`}>
-                    {processo.status}
-                  </span>
-                )}
-                {processo.cliente_nome && processo.cliente_id && (
-                  <a
-                    href={`/clientes/${processo.cliente_id}`}
-                    onClick={e => e.stopPropagation()}
-                    className="text-xs font-semibold bg-blue-50 text-blue-700 px-2.5 py-0.5 rounded-full hover:bg-blue-100 transition-colors flex items-center gap-1">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                    {processo.cliente_nome}
-                  </a>
-                )}
-                {processo.responsavel && (
-                  <span className="text-xs text-muted flex items-center gap-1">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                    {processo.responsavel}
-                  </span>
-                )}
-                {processo.tags?.map(tag => (
-                  <span key={tag} className="text-xs bg-gold/10 text-gold px-2 py-0.5 rounded-full">{tag}</span>
+              {/* Banners sync abaixo do header */}
+              {(syncResult || syncErro) && (
+                <div className="pb-3 space-y-2">
+                  {syncResult && (
+                    <div className={`rounded-xl border px-4 py-3 flex items-start gap-3 ${
+                      syncResult.status === "nao_encontrado" ? "bg-amber-50/10 border-amber-400/30"
+                      : syncResult.novos > 0 ? "bg-emerald-50/10 border-emerald-400/30"
+                      : "bg-white/5 border-white/10"}`}>
+                      <span className="text-base flex-shrink-0 mt-0.5">
+                        {syncResult.status === "nao_encontrado" ? "⚠️" : syncResult.novos > 0 ? "✨" : "✅"}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-white/80">
+                          {syncResult.status === "nao_encontrado" ? "Não encontrado no DataJud"
+                            : syncResult.novos > 0 ? `${syncResult.novos} movimentação${syncResult.novos > 1 ? "ões" : ""} adicionada${syncResult.novos > 1 ? "s" : ""}`
+                            : "Cronologia atualizada"}
+                        </p>
+                        {syncResult.status !== "nao_encontrado" && (
+                          <p className="text-xs text-white/40 mt-0.5">
+                            {syncResult.total_datajud} mov. no CNJ{syncResult.tribunal ? ` · ${syncResult.tribunal}` : ""}
+                          </p>
+                        )}
+                      </div>
+                      <button onClick={() => setSyncResult(null)} className="text-white/30 hover:text-white/70 text-xs">✕</button>
+                    </div>
+                  )}
+                  {syncErro && (
+                    <div className="rounded-xl border border-red-400/30 bg-red-50/10 px-4 py-3 flex items-center gap-3">
+                      <span className="text-base">❌</span>
+                      <p className="text-sm text-red-300 flex-1">{syncErro}</p>
+                      <button onClick={() => setSyncErro(null)} className="text-white/30 hover:text-white/70 text-xs">✕</button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Métricas no rodapé do hero */}
+              <div className="grid grid-cols-4 border-t border-white/10 -mx-6">
+                {[
+                  { label: "Documentos",  v: processo.total_documentos,  tab: "documentos" as Tab,
+                    icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> },
+                  { label: "Peças",       v: processo.total_pecas,       tab: "pecas" as Tab,
+                    icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg> },
+                  { label: "Prazos",      v: processo.analises_pendentes,tab: "prazos" as Tab,
+                    icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> },
+                  { label: "Tarefas",     v: processo.tarefas_pendentes, tab: "revisao" as Tab,
+                    accent: processo.tarefas_pendentes > 0,
+                    icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg> },
+                ].map(m => (
+                  <button key={m.label} onClick={() => setTab(m.tab)}
+                    className={`flex flex-col items-center gap-1 px-4 py-3 hover:bg-white/5 transition-colors border-r border-white/10 last:border-r-0 group`}>
+                    <span className={`${(m as {accent?: boolean}).accent ? "text-amber-400" : "text-white/40 group-hover:text-white/60"} transition-colors`}>
+                      {m.icon}
+                    </span>
+                    <span className={`text-xl font-bold ${(m as {accent?: boolean}).accent ? "text-amber-400" : "text-white"}`}>{m.v}</span>
+                    <span className="text-[10px] text-white/40 font-medium">{m.label}</span>
+                  </button>
                 ))}
               </div>
             </div>
-
-            {/* Ações do cabeçalho */}
-            <div className="flex items-center gap-2 flex-shrink-0">
-              {/* Botão Gerar Relatório */}
-              <button
-                onClick={handleGerarRelatorio}
-                disabled={gerandoRelatorio}
-                title="Gerar relatório profissional para o cliente (PDF)"
-                className="flex items-center gap-1.5 text-xs font-semibold text-gold hover:text-gold-light px-3 py-2 rounded-lg border border-gold/40 hover:border-gold hover:bg-gold/5 transition-all disabled:opacity-50"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                  <polyline points="14 2 14 8 20 8"/>
-                  <line x1="16" y1="13" x2="8" y2="13"/>
-                  <line x1="16" y1="17" x2="8" y2="17"/>
-                  <polyline points="10 9 9 9 8 9"/>
-                </svg>
-                {gerandoRelatorio ? "Gerando…" : "Relatório PDF"}
-              </button>
-
-              {/* Botão Sincronizar DataJud */}
-              <button
-                onClick={handleSyncDataJud}
-                disabled={sincronizando}
-                title="Sincronizar movimentações com o DataJud (CNJ)"
-                className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-700 px-3 py-2 rounded-lg border border-blue-200 hover:border-blue-400 hover:bg-blue-50 transition-all disabled:opacity-50"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                  className={sincronizando ? "animate-spin" : ""}>
-                  <polyline points="23 4 23 10 17 10"/>
-                  <polyline points="1 20 1 14 7 14"/>
-                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-                </svg>
-                {sincronizando ? "Sincronizando…" : "Sync DataJud"}
-              </button>
-
-              {/* Botão editar */}
-              <button
-                onClick={() => setModalEditar(true)}
-                className="flex items-center gap-1.5 text-xs font-semibold text-muted hover:text-text-main px-3 py-2 rounded-lg border border-border hover:border-gold/40 hover:bg-bg transition-all"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                </svg>
-                Editar processo
-              </button>
-            </div>
           </div>
 
-          {/* Banner resultado sync DataJud */}
-          {syncResult && (
-            <div className={`rounded-xl border px-4 py-3 mb-3 flex items-start gap-3 ${
-              syncResult.status === "nao_encontrado"
-                ? "bg-yellow-50 border-yellow-200"
-                : syncResult.novos > 0
-                ? "bg-green-50 border-green-200"
-                : "bg-blue-50 border-blue-200"
-            }`}>
-              <span className="text-lg flex-shrink-0 mt-0.5">
-                {syncResult.status === "nao_encontrado" ? "⚠️" : syncResult.novos > 0 ? "🎉" : "✅"}
-              </span>
-              <div className="flex-1 min-w-0">
-                {syncResult.status === "nao_encontrado" ? (
-                  <p className="text-sm font-semibold text-yellow-700">
-                    Processo não encontrado no DataJud
-                  </p>
-                ) : (
-                  <>
-                    <p className="text-sm font-semibold text-green-800">
-                      {syncResult.novos > 0
-                        ? `${syncResult.novos} nova${syncResult.novos > 1 ? "s movimentações adicionadas" : " movimentação adicionada"} à cronologia`
-                        : "Cronologia já está atualizada"}
-                    </p>
-                    <p className="text-xs text-muted mt-0.5">
-                      {syncResult.total_datajud} movimento{syncResult.total_datajud !== 1 ? "s" : ""} no CNJ
-                      {syncResult.classe ? ` · ${syncResult.classe}` : ""}
-                      {syncResult.tribunal ? ` · ${syncResult.tribunal}` : ""}
-                    </p>
-                  </>
-                )}
-                {syncResult.msg && (
-                  <p className="text-xs text-yellow-600 mt-0.5">{syncResult.msg}</p>
-                )}
-              </div>
-              <button onClick={() => setSyncResult(null)} className="text-muted hover:text-text-main text-xs">✕</button>
-            </div>
-          )}
-          {syncErro && (
-            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 mb-3 flex items-center gap-3">
-              <span className="text-lg">❌</span>
-              <p className="text-sm text-red-700 flex-1">{syncErro}</p>
-              <button onClick={() => setSyncErro(null)} className="text-muted hover:text-text-main text-xs">✕</button>
-            </div>
-          )}
-
-          {/* Métricas clicáveis */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-            {[
-              { label: "Documentos",        v: processo.total_documentos,  accent: false, tab: "documentos" as Tab },
-              { label: "Peças",             v: processo.total_pecas,       accent: false, tab: "pecas" as Tab },
-              { label: "Chunks indexados",  v: processo.total_chunks,      accent: false, tab: "documentos" as Tab },
-              { label: "Tarefas pendentes", v: processo.tarefas_pendentes, accent: processo.tarefas_pendentes > 0, tab: "revisao" as Tab },
-            ].map(m => (
-              <button key={m.label} onClick={() => setTab(m.tab)}
-                className={`bg-surface rounded-xl border p-4 text-left w-full transition-all hover:shadow-md hover:border-gold/40 cursor-pointer ${m.accent ? "border-yellow-300" : "border-border"}`}>
-                <p className="text-xs text-muted mb-1">{m.label}</p>
-                <p className={`text-2xl font-bold ${m.accent ? "text-yellow-600" : "text-text-main"}`}>{m.v}</p>
-              </button>
-            ))}
-          </div>
-
-          {/* Tabs */}
-          <div className="flex gap-1 border-b border-border mb-6 overflow-x-auto">
-            {TABS.map(t => (
-              <button key={t.id} onClick={() => setTab(t.id)}
-                className={`px-4 py-2.5 text-sm font-semibold whitespace-nowrap transition-all border-b-2 -mb-px ${tab === t.id ? "border-gold text-gold" : "border-transparent text-muted hover:text-text-main"}`}>
-                {t.label}
-                {t.id === "revisao" && processo.tarefas_pendentes > 0 && (
-                  <span className="ml-1.5 inline-flex items-center justify-center w-4 h-4 rounded-full bg-yellow-400 text-white text-xs font-bold">
-                    {processo.tarefas_pendentes}
+          {/* ── TABS ─────────────────────────────────────────────────── */}
+          <div className="bg-bg border-b border-border sticky top-0 z-10">
+            <div className="flex overflow-x-auto scrollbar-none px-4">
+              {TABS.map(t => (
+                <button key={t.id} onClick={() => setTab(t.id)}
+                  className={`flex items-center gap-2 px-4 py-3.5 text-xs font-semibold whitespace-nowrap border-b-2 transition-all flex-shrink-0 ${
+                    tab === t.id
+                      ? "border-gold text-gold"
+                      : "border-transparent text-muted hover:text-text-main hover:border-border"
+                  }`}>
+                  <span className={tab === t.id ? "text-gold" : "text-muted"}>
+                    {TAB_ICONS[t.id]}
                   </span>
-                )}
-              </button>
-            ))}
+                  {t.label}
+                  {t.id === "revisao" && processo.tarefas_pendentes > 0 && (
+                    <span className="inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-amber-400 text-white text-[10px] font-bold">
+                      {processo.tarefas_pendentes}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
           </div>
 
-          {/* Conteúdo */}
-          {tab === "documentos" && <AbaDocumentos processoId={id} />}
-          {tab === "pecas"      && <AbaPecas      processoId={id} />}
-          {tab === "cronologia" && <AbaCronologia processoId={id} />}
-          {tab === "prazos"     && <AbaPrazos     processoId={id} />}
-          {tab === "analises"   && <AbaAnalises   processoId={id} processo={processo} onRefreshProcesso={carregar} />}
-          {tab === "revisao"    && <AbaRevisao    processoId={id} onRefreshProcesso={carregar} />}
-          {tab === "atendimentos" && <AbaAtendimentos processoId={id} />}
-          {tab === "minutas"    && <AbaMinutas    processoId={id} />}
-          {tab === "snapshots"  && <AbaSnapshots  processoId={id} />}
-          {tab === "chat"       && <AbaChat       processoId={id} />}
-          {tab === "atividade"  && <AbaAtividade  processoId={id} />}
+          {/* ── CONTEÚDO DA ABA ──────────────────────────────────────── */}
+          <div className="p-4 sm:p-6 max-w-full">
+            {tab === "documentos"   && <AbaDocumentos   processoId={id} />}
+            {tab === "pecas"        && <AbaPecas        processoId={id} />}
+            {tab === "cronologia"   && <AbaCronologia   processoId={id} />}
+            {tab === "prazos"       && <AbaPrazos       processoId={id} />}
+            {tab === "analises"     && <AbaAnalises     processoId={id} processo={processo} onRefreshProcesso={carregar} />}
+            {tab === "revisao"      && <AbaRevisao      processoId={id} onRefreshProcesso={carregar} />}
+            {tab === "atendimentos" && <AbaAtendimentos processoId={id} />}
+            {tab === "minutas"      && <AbaMinutas      processoId={id} />}
+            {tab === "snapshots"    && <AbaSnapshots    processoId={id} />}
+            {tab === "chat"         && <AbaChat         processoId={id} />}
+            {tab === "atividade"    && <AbaAtividade    processoId={id} />}
+          </div>
         </main>
       </div>
 

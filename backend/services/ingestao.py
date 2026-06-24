@@ -19,6 +19,7 @@ from ..config import get_settings
 from ..database import get_supabase, sb_run
 from .ocr import extrair_texto_pdf
 from .classificador import classificar_peca
+from .prazo_auto import extrair_e_criar_prazos
 
 settings = get_settings()
 
@@ -368,6 +369,26 @@ async def processar_conteudo(
         for seg in segmentos[:3]:   # primeiras 3 peças
             texto_inicial += seg.get("texto", "")[:3_000] + "\n\n"
         await _extrair_cabecalho(processo_id, texto_inicial)
+
+        # ── Detecção automática de prazos em peças decisórias ────────────────
+        # Executa em paralelo para não retardar o pipeline
+        import asyncio as _asyncio
+        tarefas_prazo = []
+        for row in pecas_rows:
+            tarefas_prazo.append(
+                extrair_e_criar_prazos(
+                    processo_id=processo_id,
+                    peca_id=row["id"],
+                    tipo_peca=row["tipo_peca"],
+                    texto=row.get("conteudo_texto", ""),
+                    data_documento=None,  # será estimada em prazo_auto
+                )
+            )
+        if tarefas_prazo:
+            resultados_prazo = await _asyncio.gather(*tarefas_prazo, return_exceptions=True)
+            total_prazos = sum(r for r in resultados_prazo if isinstance(r, int))
+            if total_prazos:
+                logger.success(f"prazo_auto: {total_prazos} prazo(s) criado(s) automaticamente")
 
         await sb_run(
             lambda: sb.table("documentos").update({

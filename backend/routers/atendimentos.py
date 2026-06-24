@@ -42,6 +42,7 @@ class TimesheetCreate(BaseModel):
     duracao_min: int = 60
     data_lancamento: date
     tarefa_id: Optional[uuid.UUID] = None
+    valor_hora: float = 0.0           # R$/hora — alimenta o módulo financeiro
 
 
 # ── Atendimentos ──────────────────────────────────────────────────────────
@@ -129,23 +130,28 @@ async def listar_timesheet(
     entries = result.data or []
 
     # Computa total de horas do processo
-    total_min = sum(e.get("duracao_min", 0) for e in entries)
+    total_min   = sum(e.get("duracao_min", 0) for e in entries)
+    total_valor = sum(e.get("valor_total", 0) or 0 for e in entries)
     return {
-        "entries":    entries,
-        "total_min":  total_min,
+        "entries":     entries,
+        "total_min":   total_min,
         "total_horas": round(total_min / 60, 1),
+        "total_valor": round(total_valor, 2),
     }
 
 
 @router.post("/processos/{processo_id}/timesheet", status_code=201)
 async def lancar_horas(processo_id: uuid.UUID, body: TimesheetCreate):
     sb = get_supabase()
+    valor_total = round(body.valor_hora * body.duracao_min / 60, 2)
     row = {
         "processo_id":    str(processo_id),
         "descricao":      body.descricao,
         "tipo":           body.tipo,
         "duracao_min":    body.duracao_min,
         "data_lancamento": body.data_lancamento.isoformat(),
+        "valor_hora":     body.valor_hora,
+        "valor_total":    valor_total,
     }
     if body.tarefa_id:
         row["tarefa_id"] = str(body.tarefa_id)

@@ -755,6 +755,140 @@ JSON schema:
 }""",
     },
 
+    # ── ESTRATÉGIA VENCEDORA ─────────────────────────────────────────────────
+    "estrategia_vencedora": {
+        "instrucao": """Você é um advogado sênior com track record comprovado de vitórias no STJ, STF e TRTs. \
+Sua missão: entregar ao cliente UM PLANO VENCEDOR — não uma lista genérica de possibilidades, \
+mas a estratégia MAIS PROVÁVEL de obter a melhor decisão possível diante dos documentos analisados.
+
+ESTRUTURA DA ANÁLISE:
+
+① VEREDITO DE PROBABILIDADE: Estime honestamente a chance de êxito (0–100%) na posição atual, \
+  justificando com: jurisprudência dominante, qualidade das provas, posição processual, perfil do tribunal.
+  Separe: probabilidade de vitória total / parcial / derrota total.
+
+② ARGUMENTO CAMPEÃO: Identifique O ÚNICO ARGUMENTO mais forte do cliente — aquele com maior \
+  potencial de virar o jogo ou consolidar a vitória. Seja específico: qual o fundamento legal, \
+  qual o precedente vinculante, como ele deve ser articulado.
+
+③ TOP 5 ARGUMENTOS RANKED: Liste os 5 melhores argumentos em ordem de impacto, com \
+  o fundamento legal exato e o precedente mais relevante para cada um.
+
+④ O QUE O ADVERSÁRIO VAI ARGUIR: Antecipe os 3 contra-argumentos mais perigosos que \
+  a parte contrária usará, e como neutralizá-los preventivamente.
+
+⑤ PROVAS DECISIVAS: Quais provas ainda não produzidas são DETERMINANTES para o êxito? \
+  Quais provas já nos autos devem ser destacadas/impugnadas? Há prova ilícita?
+
+⑥ JURISPRUDÊNCIA DE OURO: Os 5 precedentes mais estratégicos a citar, com tribunal, \
+  número (se conhecido) e o argumento que suportam.
+
+⑦ PLANO DE ATAQUE (30 DIAS): Lista priorizada de ações concretas, com prazo e consequência \
+  de não agir. Pense como xadrez: cada peça tem um propósito.
+
+⑧ PONTOS DE NEGOCIAÇÃO: Se houver abertura para acordo, qual o piso e o teto razoável? \
+  Há vantagem em propor acordo agora ou é melhor litigar?
+
+⑨ ARMADILHAS A EVITAR: 3 erros que o advogado NÃO PODE COMETER neste processo \
+  (preclusões iminentes, nulidades que podem ser sanadas pelo silêncio, etc.).
+
+REGRAS ABSOLUTAS:
+- Baseie-se SOMENTE nos documentos analisados. Nunca invente fatos.
+- Probabilidades devem ser honestas — não infladas para agradar o cliente.
+- Cite sempre a peça processual de origem para cada afirmação.
+- Seja cirúrgico: um bom plano tem 5 ações certeiras, não 20 genéricas.
+
+JSON schema:
+{
+  "tipo_causa": "string",
+  "posicao_cliente": "autor | reu | terceiro",
+  "probabilidade_exito": {
+    "vitoria_total": 45,
+    "vitoria_parcial": 30,
+    "derrota_total": 25,
+    "justificativa": "string (explicação honesta da estimativa)",
+    "fatores_positivos": ["string"],
+    "fatores_negativos": ["string"],
+    "jurisprudencia_base": "string (precedente dominante que ancora a estimativa)"
+  },
+  "argumento_campeao": {
+    "titulo": "string",
+    "descricao": "string (como articular este argumento)",
+    "fundamento_legal": "string (artigo/súmula exatos)",
+    "precedente_vinculante": "string",
+    "potencial_impacto": "reversao_total | reversao_parcial | consolidacao | reducao_dano",
+    "fonte_no_processo": "string"
+  },
+  "top_argumentos": [
+    {
+      "rank": 1,
+      "titulo": "string",
+      "fundamento_legal": "string",
+      "precedente": "string ou null",
+      "como_articular": "string",
+      "impacto_esperado": "string",
+      "fonte_no_processo": "string"
+    }
+  ],
+  "contra_argumentos_adversario": [
+    {
+      "argumento_provavel": "string",
+      "grau_perigo": "alto | medio | baixo",
+      "como_neutralizar": "string",
+      "fundamento_contra": "string"
+    }
+  ],
+  "provas_decisivas": {
+    "provas_a_produzir": [
+      {
+        "tipo": "string (documental | testemunhal | pericial | inspeção)",
+        "descricao": "string",
+        "objetivo": "string (o que ela prova)",
+        "urgencia": "imediata | breve | conveniente"
+      }
+    ],
+    "provas_a_destacar": ["string (prova já nos autos + por que é decisiva)"],
+    "provas_a_impugnar": ["string (prova do adversário + fundamento da impugnação)"],
+    "alerta_provas_ilicitas": "string ou null"
+  },
+  "jurisprudencia_de_ouro": [
+    {
+      "tribunal": "string",
+      "numero_referencia": "string ou null",
+      "ementa_resumida": "string",
+      "argumento_suportado": "string"
+    }
+  ],
+  "plano_30_dias": [
+    {
+      "prioridade": 1,
+      "acao": "string (ação concreta e específica)",
+      "prazo": "string (ex: 5 dias úteis, até DD/MM/AAAA)",
+      "fundamento": "string",
+      "consequencia_de_nao_agir": "string",
+      "responsavel": "advogado | cliente | perito | ambos"
+    }
+  ],
+  "negociacao": {
+    "ha_abertura_para_acordo": true,
+    "momento_ideal": "agora | apos_prova | apos_sentenca | nao_recomendado",
+    "piso_recomendado": "string ou null",
+    "teto_aceitavel": "string ou null",
+    "vantagens_de_litigar": ["string"],
+    "vantagens_de_acordar": ["string"]
+  },
+  "armadilhas_criticas": [
+    {
+      "armadilha": "string (erro que pode custar o caso)",
+      "consequencia": "string",
+      "como_evitar": "string"
+    }
+  ],
+  "mensagem_ao_cliente": "string (parágrafo em linguagem acessível para o cliente — o que acontece agora, o que faremos e por que você está em boas mãos)",
+  "confianca": 0.0
+}""",
+    },
+
     # ── IMPACTO DA ATUALIZAÇÃO ────────────────────────────────────────────────
     "impacto_atualizacao": {
         "instrucao": """O processo recebeu novos documentos. Analise o IMPACTO dessas novidades \
@@ -1552,6 +1686,19 @@ _PASSOS_STREAM: dict[str, list[tuple[str, int]]] = {
         ("Identificando contradições…",            87),
         ("Salvando catálogo…",                    93),
     ],
+    "estrategia_vencedora": [
+        ("Carregando peças do processo…",              5),
+        ("Avaliando posição e probabilidade de êxito…", 14),
+        ("Identificando o argumento campeão…",         25),
+        ("Mapeando top 5 argumentos por impacto…",    36),
+        ("Antecipando contra-argumentos do adversário…", 47),
+        ("Analisando provas decisivas…",               57),
+        ("Selecionando jurisprudência de ouro…",       67),
+        ("Montando plano de ataque 30 dias…",          76),
+        ("Avaliando abertura para acordo…",            84),
+        ("Identificando armadilhas críticas…",         90),
+        ("Salvando estratégia…",                       95),
+    ],
 }
 
 _PASSOS_DEFAULT = [
@@ -1673,11 +1820,57 @@ def _montar_contexto_chat(pecas: list[dict]) -> str:
     return "\n\n".join(partes)
 
 
+async def _buscar_analises_recentes_chat(processo_id: uuid.UUID) -> str:
+    """
+    Carrega as análises mais ricas já geradas para enriquecer o contexto do chat.
+    Priorizamos diagnóstico_completo, estrategia_vencedora, estado_atual e riscos.
+    """
+    sb = get_supabase()
+    result = await sb_run(
+        lambda: sb.table("analises")
+        .select("tipo, conteudo_json, created_at")
+        .eq("processo_id", str(processo_id))
+        .in_("tipo", [
+            "diagnostico_completo", "estrategia_vencedora",
+            "estado_atual", "resumo_executivo", "riscos",
+        ])
+        .order("created_at", desc=True)
+        .limit(3)
+        .execute()
+    )
+    analises = result.data or []
+    if not analises:
+        return ""
+
+    blocos: list[str] = []
+    for a in analises:
+        tipo = a.get("tipo", "").upper().replace("_", " ")
+        conteudo = json.dumps(a.get("conteudo_json", {}), ensure_ascii=False)
+        # Trunca análises longas para não explodir o contexto do chat
+        if len(conteudo) > 6_000:
+            conteudo = conteudo[:6_000] + "…[truncado]"
+        blocos.append(f"=== ANÁLISE: {tipo} ===\n{conteudo}")
+
+    return "\n\n".join(blocos)
+
+
 async def chat_processo(
     processo_id: uuid.UUID,
     mensagens: list[dict],
     tipo_peca: Optional[str] = None,
+    usar_sonnet: bool = False,
 ) -> tuple[str, list[dict], int]:
+    """
+    Chat conversacional com o processo.
+
+    Correção crítica: a versão anterior enviava APENAS a última mensagem ao Claude,
+    perdendo todo o histórico. Agora o histórico completo é enviado corretamente.
+
+    Melhorias:
+    - Inclui análises já geradas (diagnóstico, estratégia, etc.) no system prompt
+    - Suporta modo Sonnet para perguntas estratégicas complexas
+    - Fontes retornadas são somente as peças realmente usadas (não todas)
+    """
     pecas = await _buscar_pecas(processo_id)
     if tipo_peca:
         filtradas = [p for p in pecas if p.get("tipo_peca") == tipo_peca]
@@ -1685,29 +1878,74 @@ async def chat_processo(
 
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
 
-    # Contexto compacto — sem chamadas de API externas, imediato
-    contexto = _montar_contexto_chat(pecas)
+    # Contexto dos documentos
+    contexto_docs = _montar_contexto_chat(pecas)
+
+    # Contexto das análises já geradas (enriquece muito as respostas)
+    contexto_analises = await _buscar_analises_recentes_chat(processo_id)
 
     system_chat = (
         SYSTEM_BASE
-        + "\n\nCONTEXTO DO PROCESSO (trechos extensos foram truncados — peca detalhes se necessario):\n\n"
-        + contexto
+        + "\n\n## MODO CHAT\n"
+        + "Você está em modo de consulta interativa. Responda com precisão e objetividade. "
+        + "Cite a peça processual de origem quando afirmar algo sobre os autos "
+        + "(ex: 'conforme a sentença, pág. 45'). "
+        + "Se não souber, diga claramente — não invente. "
+        + "Para perguntas sobre estratégia, baseie-se nas análises já realizadas.\n\n"
     )
 
-    ultima = mensagens[-1]["content"] if mensagens else ""
+    if contexto_analises:
+        system_chat += (
+            "## ANÁLISES JÁ REALIZADAS NESTE PROCESSO\n\n"
+            + contexto_analises
+            + "\n\n"
+        )
 
-    # Haiku: 5-10x mais rapido que Sonnet para Q&A sobre contexto fixo
+    system_chat += (
+        "## DOCUMENTOS DO PROCESSO\n\n"
+        + contexto_docs
+    )
+
+    # ── CORREÇÃO CRÍTICA: enviar histórico completo, não só a última mensagem ──
+    # Garante alternância user/assistant válida para a API da Anthropic
+    msgs_validas: list[dict] = []
+    for m in mensagens:
+        role = m.get("role", "")
+        content = (m.get("content") or "").strip()
+        if role not in ("user", "assistant") or not content:
+            continue
+        # Evita duas mensagens consecutivas do mesmo role
+        if msgs_validas and msgs_validas[-1]["role"] == role:
+            msgs_validas[-1]["content"] += f"\n{content}"
+        else:
+            msgs_validas.append({"role": role, "content": content})
+
+    # Deve terminar com "user"
+    if not msgs_validas or msgs_validas[-1]["role"] != "user":
+        return "Nenhuma pergunta enviada.", [], 0
+
+    # Modelo: Haiku para perguntas factuais rápidas; Sonnet para estratégia complexa
+    modelo = settings.llm_model if usar_sonnet else "claude-haiku-4-5-20251001"
+    max_tok = 2_048 if usar_sonnet else 1_024
+
     msg = await _claude_async(
         client,
-        model="claude-haiku-4-5-20251001",
-        max_tokens=1024,
+        model=modelo,
+        max_tokens=max_tok,
         system=system_chat,
-        messages=[{"role": "user", "content": ultima}],
+        messages=msgs_validas,
     )
 
+    # Fontes: peças efetivamente incluídas no contexto (as prioritárias primeiro)
     fontes = [
-        {"tipo_peca": p.get("tipo_peca"), "paginas": f"{p.get('pagina_inicio')}-{p.get('pagina_fim')}"}
-        for p in pecas[:20]
+        {
+            "tipo_peca": p.get("tipo_peca"),
+            "paginas": f"{p.get('pagina_inicio')}-{p.get('pagina_fim')}",
+        }
+        for p in sorted(
+            pecas,
+            key=lambda p: (0 if p.get("tipo_peca") in PECAS_PRIORITARIAS else 1),
+        )[:8]
     ]
     tokens = msg.usage.input_tokens + msg.usage.output_tokens
     return msg.content[0].text.strip(), fontes, tokens

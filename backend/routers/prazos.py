@@ -32,13 +32,62 @@ from datetime import date, datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 
 from ..database import get_supabase, sb_run
 from ..schemas import PrazoCreate, PrazoUpdate, PrazoOut
 from ..services import audit_svc
+from ..services.feriados import calcular_vencimento, dias_uteis_ate
 from ..config import get_settings
 
 router = APIRouter(prefix="/processos/{processo_id}/prazos", tags=["Prazos"])
+
+# ── Router utilitário (sem processo_id no path) ───────────────────────────────
+router_util = APIRouter(prefix="/prazos", tags=["Prazos"])
+
+
+class CalcVencimentoRequest(BaseModel):
+    data_base: date
+    prazo_dias: int
+    tipo: str = "uteis"   # "uteis" | "corridos" | "meses"
+    uf: Optional[str] = None
+
+
+@router_util.post("/calcular-vencimento")
+async def calcular_vencimento_endpoint(body: CalcVencimentoRequest):
+    """
+    Calcula a data de vencimento de um prazo processual com base em:
+    - data_base: data de início (publicação, intimação, etc.)
+    - prazo_dias: número de dias do prazo
+    - tipo: "uteis" (padrão, CPC art.219), "corridos" ou "meses"
+    - uf: sigla do estado para considerar feriados estaduais (opcional)
+
+    Prorroga automaticamente para o próximo dia útil se o vencimento
+    cair em sábado, domingo ou feriado (CPC art. 224, § 1º).
+    """
+    try:
+        venc = calcular_vencimento(body.data_base, body.prazo_dias, body.tipo, body.uf)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    hoje = date.today()
+    delta_corridos = (venc - hoje).days
+    d_uteis = dias_uteis_ate(hoje, venc, body.uf)
+
+    return {
+        "data_base":       body.data_base.isoformat(),
+        "prazo_dias":      body.prazo_dias,
+        "tipo":            body.tipo,
+        "uf":              body.uf,
+        "vencimento":      venc.isoformat(),
+        "dias_corridos_restantes": delta_corridos,
+        "dias_uteis_restantes":    d_uteis,
+        "status": (
+            "vencido"   if delta_corridos < 0 else
+            "hoje"      if delta_corridos == 0 else
+            "em_aberto"
+        ),
+    }
 settings = get_settings()
 DEFAULT_USER = uuid.UUID(settings.default_usuario_id)
 

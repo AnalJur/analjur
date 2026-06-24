@@ -180,6 +180,7 @@ async def chat(body: ChatRequest):
             processo_id=body.processo_id,
             mensagens=[m.model_dump() for m in body.mensagens],
             tipo_peca=body.tipo_peca,
+            usar_sonnet=body.usar_sonnet,
         )
     except Exception as e:
         raise HTTPException(500, str(e))
