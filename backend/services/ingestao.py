@@ -10,7 +10,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+import json as _json
+
 from loguru import logger
+import anthropic
 
 from ..config import get_settings
 from ..database import get_supabase, sb_run
@@ -163,6 +166,141 @@ async def limpar_documento_com_erro(processo_id: uuid.UUID, content_hash: str) -
         logger.info(f"Documento com erro removido para re-upload: {doc_id}")
 
 
+# ── Extração automática de cabeçalho ─────────────────────────────────────────
+
+async def _extrair_cabecalho(processo_id: uuid.UUID, texto_inicial: str) -> None:
+    """
+    Usa Claude Haiku para extrair número CNJ, tribunal, vara, assunto e partes
+    das primeiras páginas do processo e atualiza o registro automaticamente.
+    Só executa se o processo ainda não tem número CNJ preenchido.
+    """
+    sb = get_supabase()
+
+    # Verifica se já tem dados — não sobrescreve o que o advogado digitou
+    proc = await sb_run(
+        lambda: sb.table("processos").select("numero_cnj,tribunal,vara")
+        .eq("id", str(processo_id)).limit(1).execute()
+    )
+    if not proc.data:
+        return
+    p = proc.data[0]
+    if p.get("numero_cnj") and p.get("tribunal") and p.get("vara"):
+        logger.info("Cabeçalho já preenchido — extração automática ignorada")
+        return
+
+    # Usa apenas os primeiros ~8 K chars para evitar custo desnecessário
+    trecho = texto_inicial[:8_000]
+    if not trecho.strip():
+        return
+
+    prompt = f"""Extraia os metadados do processo judicial abaixo.
+Responda SOMENTE com JSON válido, sem markdown.
+
+TEXTO (primeiros trechos do processo):
+{trecho}
+
+JSON esperado:
+{{
+  "numero_cnj": "número no formato 0000000-00.0000.0.00.0000 ou null",
+  "tribunal": "sigla do tribunal (ex: TJGO, TJSP, TRT-18, TRF-1) ou null",
+  "vara": "nome da vara ou juízo (ex: 5ª Vara Cível de Goiânia) ou null",
+  "comarca": "comarca ou cidade ou null",
+  "juiz": "nome do juiz ou juíza responsável ou null",
+  "assunto": "assunto resumido (ex: Cobrança de Dívida, Rescisão Contratual) ou null",
+  "tipo_causa": "trabalhista | civil | consumidor | tributario | criminal | administrativo | outro",
+  "valor_causa": "valor em R$ se mencionado ou null",
+  "partes": {{
+    "autores": [{{"nome": "string", "advogado": "string ou null", "oab": "string ou null"}}],
+    "reus":    [{{"nome": "string", "advogado": "string ou null", "oab": "string ou null"}}]
+  }}
+}}"""
+
+    try:
+        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        loop = __import__("asyncio").get_event_loop()
+        msg = await loop.run_in_executor(
+            None,
+            lambda: client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=1_024,
+                messages=[{"role": "user", "content": prompt}],
+            ),
+        )
+        raw = msg.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1].rsplit("```", 1)[0]
+        data = _json.loads(raw)
+    except Exception as e:
+        logger.warning(f"Extração de cabeçalho falhou: {e}")
+        return
+
+    # ── Atualiza o processo ───────────────────────────────────────────────────
+    updates: dict = {}
+    for campo in ("numero_cnj", "tribunal", "vara", "assunto"):
+        val = data.get(campo)
+        if val and not p.get(campo):   # só preenche campos ainda vazios
+            updates[campo] = val
+
+    # Metadados extras (comarca, juiz, tipo_causa, valor_causa)
+    meta_extras: dict = {}
+    for campo in ("comarca", "juiz", "tipo_causa", "valor_causa"):
+        val = data.get(campo)
+        if val:
+            meta_extras[campo] = val
+
+    if meta_extras:
+        curr_meta = await sb_run(
+            lambda: sb.table("processos").select("metadados")
+            .eq("id", str(processo_id)).limit(1).execute()
+        )
+        meta = (curr_meta.data[0].get("metadados") or {}) if curr_meta.data else {}
+        for k, v in meta_extras.items():
+            if k not in meta:   # não sobrescreve
+                meta[k] = v
+        updates["metadados"] = meta
+
+    if updates:
+        await sb_run(
+            lambda: sb.table("processos").update(updates)
+            .eq("id", str(processo_id)).execute()
+        )
+        logger.success(f"Cabeçalho extraído: {list(updates.keys())}")
+
+    # ── Cria registros de partes ──────────────────────────────────────────────
+    partes_data = data.get("partes") or {}
+    partes_rows: list[dict] = []
+
+    for autor in (partes_data.get("autores") or []):
+        if autor.get("nome"):
+            partes_rows.append({
+                "id":          str(uuid.uuid4()),
+                "processo_id": str(processo_id),
+                "tipo":        "autor",
+                "nome":        autor["nome"],
+                "oab":         autor.get("oab"),
+            })
+
+    for reu in (partes_data.get("reus") or []):
+        if reu.get("nome"):
+            partes_rows.append({
+                "id":          str(uuid.uuid4()),
+                "processo_id": str(processo_id),
+                "tipo":        "reu",
+                "nome":        reu["nome"],
+                "oab":         reu.get("oab"),
+            })
+
+    if partes_rows:
+        # Evita duplicatas — verifica se já existem partes cadastradas
+        existing = await sb_run(
+            lambda: sb.table("partes").select("id")
+            .eq("processo_id", str(processo_id)).limit(1).execute()
+        )
+        if not existing.data:
+            await sb_run(lambda: sb.table("partes").insert(partes_rows).execute())
+            logger.success(f"Partes cadastradas automaticamente: {len(partes_rows)}")
+
+
 # ── Pipeline principal ────────────────────────────────────────────────────────
 
 async def processar_conteudo(
@@ -223,6 +361,13 @@ async def processar_conteudo(
         for i in range(0, len(pecas_rows), LOTE):
             lote = pecas_rows[i:i + LOTE]
             await sb_run(lambda: sb.table("pecas").insert(lote).execute())
+
+        # ── Extração automática de metadados do cabeçalho ────────────────────
+        # Usa o texto das primeiras peças (petição inicial se presente)
+        texto_inicial = ""
+        for seg in segmentos[:3]:   # primeiras 3 peças
+            texto_inicial += seg.get("texto", "")[:3_000] + "\n\n"
+        await _extrair_cabecalho(processo_id, texto_inicial)
 
         await sb_run(
             lambda: sb.table("documentos").update({

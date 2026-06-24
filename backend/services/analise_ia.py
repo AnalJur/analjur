@@ -644,6 +644,117 @@ JSON schema:
 }""",
     },
 
+    # ── ANÁLISE DE PROVAS ─────────────────────────────────────────────────────
+    "analise_provas": {
+        "instrucao": """Analise o conjunto probatório do processo como um advogado sênior \
+faria para decidir se vai a julgamento ou negocia acordo.
+
+INSTRUÇÕES:
+- Mapeie TODAS as provas produzidas ou requeridas: documentais, testemunhais, periciais, \
+  eletrônicas, presunções legais.
+- Para cada prova: avalie o PESO probatório (o quanto convence um juiz médio) e a \
+  CONTROVÉRSIA (se a parte contrária a impugna e com que fundamento).
+- Identifique provas que FALTAM e que seriam decisivas para o desfecho.
+- Avalie se há cerceamento de defesa (prova requerida e indeferida sem motivação).
+- Aplique o standard probatório correto: cível (preponderância de evidências), criminal \
+  (além da dúvida razoável), consumidor (inversão do ônus — art. 6º, VIII CDC).
+- Identifique nulidades nas provas produzidas (ilicitude — CF art. 5º, LVI; prova emprestada).
+
+JSON schema:
+{
+  "standard_probatorio": "preponderancia | alem_da_duvida | inversao_onus_cdc | outro",
+  "conjunto_probatorio": [
+    {
+      "prova": "string (descrição da prova)",
+      "tipo": "documental | testemunhal | pericial | eletronica | presuncao | confissao | outro",
+      "fonte_no_processo": "string (tipo de peça + página)",
+      "quem_produziu": "autor | reu | juizo | perito | terceiro",
+      "peso_probatorio": "decisivo | relevante | auxiliar | irrelevante",
+      "impugnada": true,
+      "fundamento_impugnacao": "string ou null",
+      "validade": "valida | nula | questionavel",
+      "observacao": "string ou null"
+    }
+  ],
+  "provas_faltantes": [
+    {
+      "prova": "string (qual prova falta)",
+      "importancia": "critica | alta | media",
+      "quem_deveria_produzir": "autor | reu | ambos | juizo",
+      "como_obter": "string (como requerer ou produzir)",
+      "fundamento": "string (artigo ou súmula)"
+    }
+  ],
+  "cerceamento_defesa": [
+    {
+      "prova_indeferida": "string",
+      "fundamento_requerimento": "string",
+      "motivo_indeferimento": "string",
+      "impacto": "critico | alto | medio | baixo",
+      "como_arguir": "string"
+    }
+  ],
+  "avaliacao_global": {
+    "suficiencia": "suficiente | insuficiente | marginal",
+    "posicao_probatoria_autor": "favoravel | desfavoravel | equilibrada",
+    "prova_mais_forte_do_autor": "string ou null",
+    "prova_mais_forte_do_reu": "string ou null",
+    "recomendacao": "string (ir a julgamento, produzir mais provas ou negociar)"
+  },
+  "confianca": 0.0
+}""",
+    },
+
+    # ── JURISPRUDÊNCIA CITADA ─────────────────────────────────────────────────
+    "jurisprudencia_citada": {
+        "instrucao": """Cataloga TODA a jurisprudência, doutrina e legislação citadas no \
+processo — pelas partes, pelo juiz e pelos acórdãos.
+
+INSTRUÇÕES:
+- Extraia CADA citação de: STF, STJ, TST, TRF, TRT, TJXX, doutrina e legislação.
+- Para precedentes: identifique o número (REsp, RE, AI, HC etc.), o tema, o relator \
+  se mencionado, e se é vinculante (súmula vinculante, repercussão geral, recursos repetitivos).
+- Avalie se cada precedente FAVORECE o autor, o réu ou é neutro no contexto do caso.
+- Identifique contradições: situações em que ambas as partes citam precedentes opostos \
+  sobre o mesmo ponto.
+- Destaque os precedentes mais relevantes que o juiz provavelmente vai considerar.
+
+JSON schema:
+{
+  "precedentes": [
+    {
+      "referencia": "string (ex: STJ, REsp 1.234.567/SP; Súmula 385 STJ; RE 574.706 STF)",
+      "tribunal": "STF | STJ | TST | TRF | TRT | TJXX | outro",
+      "tipo": "sumula_vinculante | sumula | resp_repetitivo | re_repercussao | acordao | outro",
+      "tema": "string (sobre o que trata)",
+      "vinculante": true,
+      "quem_citou": "autor | reu | juiz | acordao",
+      "favorece": "autor | reu | neutro",
+      "fonte_no_processo": "string (tipo de peça + página)",
+      "observacao": "string ou null"
+    }
+  ],
+  "legislacao": [
+    {
+      "diploma": "string (ex: art. 186 CC/2002; art. 33 §4º Lei 11.343/06)",
+      "tema": "string",
+      "quem_citou": "autor | reu | juiz | acordao",
+      "favorece": "autor | reu | neutro"
+    }
+  ],
+  "contradicoes": [
+    {
+      "ponto_controverso": "string",
+      "precedente_do_autor": "string",
+      "precedente_do_reu": "string",
+      "qual_prevalece": "string (qual tende a prevalecer e por quê)"
+    }
+  ],
+  "precedentes_chave": ["string (os 3-5 mais importantes para o desfecho)"],
+  "confianca": 0.0
+}""",
+    },
+
     # ── IMPACTO DA ATUALIZAÇÃO ────────────────────────────────────────────────
     "impacto_atualizacao": {
         "instrucao": """O processo recebeu novos documentos. Analise o IMPACTO dessas novidades \
@@ -1422,6 +1533,24 @@ _PASSOS_STREAM: dict[str, list[tuple[str, int]]] = {
         ("Elaborando estratégias alternativas…",   50),
         ("Definindo recomendação principal…",      72),
         ("Salvando…",                              90),
+    ],
+    "analise_provas": [
+        ("Carregando peças do processo…",          5),
+        ("Mapeando provas documentais…",           20),
+        ("Avaliando provas testemunhais…",         38),
+        ("Identificando provas periciais…",        55),
+        ("Detectando provas faltantes…",           70),
+        ("Verificando cerceamento de defesa…",     83),
+        ("Concluindo avaliação probatória…",       91),
+    ],
+    "jurisprudencia_citada": [
+        ("Carregando peças do processo…",          5),
+        ("Catalogando precedentes do STF/STJ…",   22),
+        ("Catalogando precedentes dos TJs/TRFs…", 40),
+        ("Identificando súmulas aplicáveis…",     58),
+        ("Mapeando legislação citada…",            74),
+        ("Identificando contradições…",            87),
+        ("Salvando catálogo…",                    93),
     ],
 }
 

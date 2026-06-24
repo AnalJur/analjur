@@ -62,7 +62,7 @@ def _ocr_claude(page: fitz.Page, num: int) -> str:
 
         client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
         msg = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model=settings.llm_model,   # Sonnet: melhor fidelidade em docs escaneados
             max_tokens=4096,
             messages=[{
                 "role": "user",

@@ -16,36 +16,96 @@ TIPOS_PECA = [
     "peticao_inicial",
     "contestacao",
     "replica",
+    "impugnacao",
+    "alegacoes_finais",
     "sentenca",
     "acordao",
     "despacho",
     "decisao_interlocutoria",
     "recurso",
     "contrarrazoes",
+    "embargos_declaracao",
+    "agravo",
+    "mandado",
+    "oficio",
     "certidao",
     "publicacao",
+    "ata_audiencia",
     "laudo_pericial",
     "procuracao",
     "contrato",
+    "guia_recolhimento",
+    "edital",
+    "notificacao",
     "outros",
 ]
 
-# Palavras-chave por tipo (ordem importa: mais específico primeiro)
+# Palavras-chave por tipo (mais específico primeiro; 2 hits = alta confiança)
 _REGRAS: list[tuple[str, list[str]]] = [
-    ("sentenca",              ["sentença", "procedente", "improcedente", "julgo", "condeno", "absolvo"]),
-    ("acordao",               ["acórdão", "acorda", "turma", "câmara", "relator", "ementa"]),
-    ("peticao_inicial",       ["petição inicial", "excelentíssimo", "vem respeitosamente", "requer a v. exa"]),
-    ("contestacao",           ["contestação", "em contestação", "impugna", "defende-se"]),
-    ("replica",               ["réplica", "em réplica", "impugna os documentos"]),
-    ("recurso",               ["apelação", "agravo", "recurso especial", "recurso ordinário", "embargos de declaração"]),
-    ("contrarrazoes",         ["contrarrazões", "contra-razões"]),
-    ("decisao_interlocutoria",["decisão", "defiro", "indefiro", "determino"]),
-    ("despacho",              ["despacho", "cumpra-se", "vista"]),
-    ("certidao",              ["certidão", "certifico", "certificamos"]),
-    ("publicacao",            ["diário da justiça", "djeo", "djen", "publicado em"]),
-    ("laudo_pericial",        ["laudo pericial", "perícia", "perito"]),
-    ("procuracao",            ["procuração", "outorgante", "outorgado", "mandato"]),
-    ("contrato",              ["contrato", "cláusula", "objeto do presente"]),
+    # ── Decisões finais ──────────────────────────────────────────────────────
+    ("sentenca",               ["sentença", "julgo procedente", "julgo improcedente",
+                                "julgo parcialmente", "condeno o réu", "absolvo o réu",
+                                "extingo o processo", "dispositivo"]),
+    ("acordao",                ["acórdão", "acordam", "turma julgadora", "câmara cível",
+                                "câmara criminal", "relator", "ementa:", "vistos, relatados"]),
+
+    # ── Atos de comunicação ──────────────────────────────────────────────────
+    ("mandado",                ["mandado de citação", "mandado de intimação", "mandado de penhora",
+                                "oficial de justiça", "mandado de busca", "cumpra-se o mandado"]),
+    ("oficio",                 ["ofício nº", "ofício circular", "solicitamos a v. sa.",
+                                "encaminhamos a v. sa.", "por determinação"]),
+    ("edital",                 ["edital de citação", "edital de intimação", "edital de leilão",
+                                "ficam os interessados", "prazo de", "faz saber"]),
+    ("notificacao",            ["notificação extrajudicial", "fica v. sa. notificado",
+                                "notificamos", "notifica-se"]),
+
+    # ── Recursos ─────────────────────────────────────────────────────────────
+    ("embargos_declaracao",    ["embargos de declaração", "embargante", "omissão",
+                                "contradição", "obscuridade", "efeitos infringentes"]),
+    ("agravo",                 ["agravo de instrumento", "agravo interno", "agravo regimental",
+                                "agravo em resp", "agrava-se", "decisão agravada"]),
+    ("recurso",                ["apelação", "apelante", "recurso especial", "recurso ordinário",
+                                "resp", "recurso adesivo", "contrarrazões de apelação"]),
+    ("contrarrazoes",          ["contrarrazões", "contra-razões", "apelado", "recorrido"]),
+
+    # ── Petições ─────────────────────────────────────────────────────────────
+    ("peticao_inicial",        ["petição inicial", "excelentíssimo senhor", "douto juiz",
+                                "vem, respeitosamente", "requer a v. exa", "da causa o valor"]),
+    ("contestacao",            ["contestação", "em contestação", "preliminarmente",
+                                "impugna", "requer a improcedência"]),
+    ("replica",                ["réplica", "em réplica", "impugna os documentos",
+                                "mantém o quanto exposto"]),
+    ("impugnacao",             ["impugnação ao cumprimento", "impugna a execução",
+                                "excesso de execução", "impugna os cálculos"]),
+    ("alegacoes_finais",       ["alegações finais", "memorial de alegações",
+                                "memoriais", "razões finais"]),
+
+    # ── Atos instrutórios ────────────────────────────────────────────────────
+    ("ata_audiencia",          ["ata de audiência", "audiência de conciliação",
+                                "audiência de instrução", "presentes as partes",
+                                "o juiz presidente", "encerrada a audiência"]),
+    ("laudo_pericial",         ["laudo pericial", "laudo de perícia", "perito nomeado",
+                                "conclusão pericial", "quesitos respondidos"]),
+
+    # ── Despachos e decisões interlocutórias ─────────────────────────────────
+    ("decisao_interlocutoria", ["defiro o pedido", "indefiro o pedido", "defiro a tutela",
+                                "determino", "intime-se", "cite-se", "fica deferido"]),
+    ("despacho",               ["despacho", "cumpra-se", "vista ao ministério público",
+                                "conclusos", "ao contador"]),
+
+    # ── Documentos cartorários ────────────────────────────────────────────────
+    ("certidao",               ["certidão", "certifico", "certificamos", "certifico que",
+                                "nada consta", "certidão negativa"]),
+    ("publicacao",             ["diário da justiça", "djeo", "djen", "dje-", "publicado em",
+                                "diário oficial", "intimação via dje"]),
+
+    # ── Documentos extrajudiciais ─────────────────────────────────────────────
+    ("procuracao",             ["procuração", "outorgante", "outorgado",
+                                "poderes para", "constituir advogado"]),
+    ("contrato",               ["contrato de", "cláusula", "objeto do presente contrato",
+                                "obrigações das partes", "foro competente"]),
+    ("guia_recolhimento",      ["guia de recolhimento", "guia de custas", "dare",
+                                "gru", "darf", "comprovante de pagamento de custas"]),
 ]
 
 
