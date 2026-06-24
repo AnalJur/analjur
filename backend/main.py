@@ -10,6 +10,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
 from .routers import processos, documentos, analises, revisao, minutas, jobs, admin, auth, prazos
+from .routers.prazos import router_util as prazos_util
+from .routers.monitoramento import router as monitoramento_router
+from .routers.relatorio import router as relatorio_router
+from .routers.atendimentos import router as atendimentos_router
+from .routers.clientes import router as clientes_router
+from .routers.agenda import router as agenda_router
 from .services.worker import loop_worker
 
 
@@ -48,10 +54,16 @@ app.include_router(processos.router)
 app.include_router(documentos.router)
 app.include_router(analises.router)
 app.include_router(prazos.router)
+app.include_router(prazos_util)
 app.include_router(revisao.router)
 app.include_router(minutas.router)
 app.include_router(jobs.router)
 app.include_router(admin.router)
+app.include_router(monitoramento_router)
+app.include_router(relatorio_router)
+app.include_router(atendimentos_router)
+app.include_router(clientes_router)
+app.include_router(agenda_router)
 
 
 @app.get("/health")

@@ -32,11 +32,24 @@ async def listar_processos(status: Optional[str] = Query(None)):
     if status:
         q = q.eq("status", status)
     result = await sb_run(q.execute)
-    # Fallback responsavel via metadados para processos sem responsavel_id
     processos = result.data or []
+
+    # Fallback responsavel via metadados
     for p in processos:
         if not p.get("responsavel"):
             p["responsavel"] = (p.get("metadados") or {}).get("responsavel")
+
+    # Enriquece com cliente_nome via batch lookup
+    cliente_ids = list({p["cliente_id"] for p in processos if p.get("cliente_id")})
+    if cliente_ids:
+        cl_result = await sb_run(
+            lambda: sb.table("clientes").select("id,nome").in_("id", cliente_ids).execute()
+        )
+        nome_map = {c["id"]: c["nome"] for c in (cl_result.data or [])}
+        for p in processos:
+            if p.get("cliente_id"):
+                p["cliente_nome"] = nome_map.get(p["cliente_id"])
+
     return processos
 
 

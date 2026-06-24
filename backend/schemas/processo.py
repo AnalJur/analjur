@@ -13,6 +13,7 @@ class ProcessoCreate(BaseModel):
     assunto:     Optional[str] = None
     tags:        list[str] = []
     metadados:   dict = {}
+    cliente_id:  Optional[uuid.UUID] = None
 
 
 class ProcessoUpdate(BaseModel):
@@ -25,6 +26,7 @@ class ProcessoUpdate(BaseModel):
     responsavel:    Optional[str] = None   # texto livre; armazenado em metadados["responsavel"]
     tags:           Optional[list[str]] = None
     metadados:      Optional[dict] = None
+    cliente_id:     Optional[uuid.UUID] = None
 
 
 class ProcessoOut(BaseModel):
@@ -36,6 +38,8 @@ class ProcessoOut(BaseModel):
     status:             str = "ativo"
     tags:               list[str] = []
     responsavel:        Optional[str] = None
+    cliente_id:         Optional[uuid.UUID] = None
+    cliente_nome:       Optional[str] = None
     total_documentos:   int = 0
     total_pecas:        int = 0
     total_chunks:       int = 0
@@ -195,9 +199,10 @@ class ChatMensagem(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    processo_id: uuid.UUID
-    mensagens:   list[ChatMensagem]
-    tipo_peca:   Optional[str] = None
+    processo_id:  uuid.UUID
+    mensagens:    list[ChatMensagem]
+    tipo_peca:    Optional[str] = None
+    usar_sonnet:  bool = False   # True → Sonnet (estratégia complexa); False → Haiku (rápido)
 
 
 class ChatResponse(BaseModel):
@@ -245,8 +250,13 @@ class TarefaOut(BaseModel):
 # ── Minuta ────────────────────────────────────────────────────────────────
 
 class MinutaSolicitacao(BaseModel):
-    tipo:    str = Field(description="resumo_executivo | minuta_recurso | minuta_contestacao | prompt_juridico | parecer")
-    titulo:  str
+    tipo: str = Field(description=(
+        "peticao_inicial | tutela_antecipada | impugnacao_cumprimento | "
+        "apelacao_civel | embargos_declaracao | agravo_instrumento | "
+        "recurso_ordinario_trabalhista | recurso_especial | "
+        "habeas_corpus | mandado_seguranca | parecer | resumo_executivo"
+    ))
+    titulo: str
     instrucoes: Optional[str] = None
 
 

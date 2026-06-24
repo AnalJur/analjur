@@ -8,6 +8,7 @@ import {
   api, calcCustoAnalise, calcCustoTotal,
   type Processo, type Documento, type EventoCronologia,
   type Analise, type TarefaRevisao, type Minuta, type Snapshot, type Peca, type Prazo,
+  type SyncDataJudResult, type Atendimento, type TimesheetEntry,
 } from "@/lib/api";
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -208,16 +209,17 @@ function Modal({ title, onClose, children, wide }: {
 // ── Tabs ──────────────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: "documentos", label: "Documentos" },
-  { id: "pecas",      label: "Peças" },
-  { id: "cronologia", label: "Cronologia" },
-  { id: "prazos",     label: "⏰ Prazos" },
-  { id: "analises",   label: "Análises IA" },
-  { id: "revisao",    label: "Revisão" },
-  { id: "minutas",    label: "Minutas" },
-  { id: "snapshots",  label: "Versões" },
-  { id: "chat",       label: "Chat IA" },
-  { id: "atividade",  label: "⏱ Atividade" },
+  { id: "documentos",   label: "Documentos" },
+  { id: "pecas",        label: "Peças" },
+  { id: "cronologia",   label: "Cronologia" },
+  { id: "prazos",       label: "⏰ Prazos" },
+  { id: "analises",     label: "Análises IA" },
+  { id: "revisao",      label: "Revisão" },
+  { id: "atendimentos", label: "📋 Atendimentos" },
+  { id: "minutas",      label: "Minutas" },
+  { id: "snapshots",    label: "Versões" },
+  { id: "chat",         label: "Chat IA" },
+  { id: "atividade",    label: "⏱ Atividade" },
 ] as const;
 type Tab = (typeof TABS)[number]["id"];
 
@@ -501,6 +503,7 @@ function AbaCronologia({ processoId }: { processoId: string }) {
   const [gerandoCron, setGerandoCron] = useState(false);
   const [passoCron, setPassoCron] = useState(0);
   const [progresso, setProgresso] = useState(0);
+  const [vistaTimeline, setVistaTimeline] = useState(true);
 
   useEffect(() => {
     api.cronologia.listar(processoId).then(setEventos).finally(() => setLoading(false));
@@ -654,8 +657,24 @@ function AbaCronologia({ processoId }: { processoId: string }) {
         )}
       </div>
 
+      {/* Barra de controles */}
       <div className="flex items-center gap-3 mb-4">
         <div className="flex-1"><SearchBar value={busca} onChange={setBusca} placeholder="Buscar eventos…" /></div>
+        {/* Toggle lista / timeline */}
+        <div className="flex rounded-lg border border-border overflow-hidden">
+          <button
+            onClick={() => setVistaTimeline(false)}
+            className={`px-3 py-2 text-xs font-semibold transition-colors ${!vistaTimeline ? "bg-gold text-navy" : "bg-bg text-muted hover:text-text-main"}`}
+            title="Vista em lista">
+            ≡ Lista
+          </button>
+          <button
+            onClick={() => setVistaTimeline(true)}
+            className={`px-3 py-2 text-xs font-semibold transition-colors ${vistaTimeline ? "bg-gold text-navy" : "bg-bg text-muted hover:text-text-main"}`}
+            title="Linha do tempo">
+            ◈ Timeline
+          </button>
+        </div>
         <button onClick={() => setModalEvento({ form: EVENTO_FORM_VAZIO })}
           className="border border-border text-text-main font-semibold rounded-lg px-4 py-2 text-sm hover:border-gold hover:text-gold transition-all whitespace-nowrap">
           + Manual
@@ -668,65 +687,160 @@ function AbaCronologia({ processoId }: { processoId: string }) {
         </div>
       )}
 
-      <div className="relative">
-        {eventos.length > 0 && <div className="absolute left-4 top-0 bottom-0 w-px bg-border" />}
-        <div className="space-y-4 pl-10">
-          {eventosFiltrados.map(ev => (
-            <div key={ev.id} className="relative">
-              <div className={`absolute -left-6 top-3 w-3 h-3 rounded-full border-2 border-surface
-                ${ev.relevancia === "critica" ? "bg-red-500" : ev.relevancia === "alta" ? "bg-orange-400" : ev.relevancia === "media" ? "bg-gold" : "bg-green-400"}`} />
-              <div
-                className="bg-bg rounded-xl border border-border p-4 hover:border-gold/40 transition-colors cursor-pointer"
-                onClick={() => setModalEvento({
-                  id: ev.id,
-                  form: {
-                    tipo_evento: ev.tipo_evento,
-                    descricao: ev.descricao,
-                    data_evento: ev.data_evento ?? "",
-                    data_aproximada: ev.data_aproximada,
-                    relevancia: ev.relevancia,
-                    fonte: ev.fonte,
-                  },
-                })}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-xs font-mono text-muted">
-                        {ev.data_evento ? fmtData(String(ev.data_evento)) : "Data?"}
-                        {ev.data_aproximada && " ~"}
-                      </span>
-                      <RelevBadge r={ev.relevancia} />
-                      {!ev.validado && <span className="text-xs text-muted italic">(não validado)</span>}
-                      {ev.fonte === "manual" && <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">manual</span>}
+      {/* ── VISTA TIMELINE ── */}
+      {vistaTimeline && eventosFiltrados.length > 0 && (() => {
+        // Agrupa por ano
+        const porAno: Record<string, EventoCronologia[]> = {};
+        eventosFiltrados.forEach(ev => {
+          const ano = ev.data_evento ? ev.data_evento.slice(0, 4) : "Sem data";
+          if (!porAno[ano]) porAno[ano] = [];
+          porAno[ano].push(ev);
+        });
+        const anos = Object.keys(porAno).sort();
+
+        const corPonto: Record<string, string> = {
+          critica: "bg-red-500 ring-red-200",
+          alta:    "bg-orange-400 ring-orange-200",
+          media:   "bg-gold ring-yellow-200",
+          baixa:   "bg-green-400 ring-green-200",
+        };
+        const corBorda: Record<string, string> = {
+          critica: "border-red-300",
+          alta:    "border-orange-300",
+          media:   "border-yellow-300",
+          baixa:   "border-green-300",
+        };
+
+        return (
+          <div className="relative ml-2">
+            {/* Linha vertical principal */}
+            <div className="absolute left-5 top-0 bottom-0 w-0.5 bg-gradient-to-b from-gold via-border to-transparent" />
+
+            <div className="space-y-0">
+              {anos.map(ano => (
+                <div key={ano}>
+                  {/* Cabeçalho do ano */}
+                  <div className="flex items-center gap-3 mb-4 mt-6 first:mt-0">
+                    <div className="w-10 h-10 rounded-full bg-navy text-white text-xs font-black flex items-center justify-center z-10 relative shrink-0">
+                      {ano.slice(2)}
                     </div>
-                    <p className="text-sm font-semibold text-text-main">{ev.tipo_evento.replace(/_/g, " ")}</p>
-                    <p className="text-sm text-muted mt-1">{ev.descricao}</p>
+                    <span className="text-sm font-bold text-navy">{ano}</span>
+                    <div className="flex-1 h-px bg-border" />
+                    <span className="text-xs text-muted">{porAno[ano].length} evento{porAno[ano].length !== 1 ? "s" : ""}</span>
                   </div>
-                  <div className="flex items-center gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
-                    {!ev.validado && (
-                      <Btn variant="green" onClick={() => validar(ev.id)}>Validar</Btn>
-                    )}
-                    <Btn onClick={() => setModalEvento({
-                      id: ev.id,
-                      form: {
-                        tipo_evento: ev.tipo_evento, descricao: ev.descricao,
-                        data_evento: ev.data_evento ?? "", data_aproximada: ev.data_aproximada,
-                        relevancia: ev.relevancia, fonte: ev.fonte,
-                      },
-                    })}>
-                      Editar
-                    </Btn>
-                    <Btn variant="danger" onClick={() => deletarEvento(ev.id)} disabled={deletando === ev.id}>
-                      {deletando === ev.id ? "…" : "Excluir"}
-                    </Btn>
+
+                  {/* Eventos do ano */}
+                  <div className="space-y-3 pb-2">
+                    {porAno[ano].map(ev => {
+                      const rel = ev.relevancia as string;
+                      const dataFmt = ev.data_evento
+                        ? new Date(ev.data_evento + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })
+                        : "?";
+                      return (
+                        <div key={ev.id} className="flex gap-4 items-start group">
+                          {/* Ponto na linha */}
+                          <div className="relative flex-shrink-0 w-10 flex justify-center">
+                            <div className={`w-4 h-4 rounded-full z-10 relative ring-4 mt-2 ${corPonto[rel] ?? "bg-muted ring-muted/20"}`} />
+                          </div>
+                          {/* Card */}
+                          <div
+                            className={`flex-1 bg-bg border rounded-xl p-4 cursor-pointer hover:shadow-md transition-all hover:border-gold/50 ${corBorda[rel] ?? "border-border"}`}
+                            onClick={() => setModalEvento({
+                              id: ev.id,
+                              form: {
+                                tipo_evento: ev.tipo_evento, descricao: ev.descricao,
+                                data_evento: ev.data_evento ?? "", data_aproximada: ev.data_aproximada,
+                                relevancia: ev.relevancia, fonte: ev.fonte,
+                              },
+                            })}>
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center flex-wrap gap-2 mb-1">
+                                  <span className="text-xs font-bold text-text-main bg-surface border border-border rounded px-2 py-0.5 font-mono">
+                                    {dataFmt}{ev.data_aproximada ? " ~" : ""}
+                                  </span>
+                                  <RelevBadge r={ev.relevancia} />
+                                  {!ev.validado && <span className="text-[10px] text-muted italic bg-surface px-1.5 py-0.5 rounded">não validado</span>}
+                                  {ev.fonte === "manual" && <span className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded font-semibold">manual</span>}
+                                </div>
+                                <p className="text-sm font-semibold text-text-main capitalize">
+                                  {ev.tipo_evento.replace(/_/g, " ")}
+                                </p>
+                                <p className="text-sm text-muted mt-1 leading-relaxed">{ev.descricao}</p>
+                              </div>
+                              <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
+                                {!ev.validado && <Btn variant="green" onClick={() => validar(ev.id)}>✓</Btn>}
+                                <Btn variant="danger" onClick={() => deletarEvento(ev.id)} disabled={deletando === ev.id}>
+                                  {deletando === ev.id ? "…" : "✕"}
+                                </Btn>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── VISTA LISTA ── */}
+      {!vistaTimeline && (
+        <div className="relative">
+          {eventos.length > 0 && <div className="absolute left-4 top-0 bottom-0 w-px bg-border" />}
+          <div className="space-y-4 pl-10">
+            {eventosFiltrados.map(ev => (
+              <div key={ev.id} className="relative">
+                <div className={`absolute -left-6 top-3 w-3 h-3 rounded-full border-2 border-surface
+                  ${ev.relevancia === "critica" ? "bg-red-500" : ev.relevancia === "alta" ? "bg-orange-400" : ev.relevancia === "media" ? "bg-gold" : "bg-green-400"}`} />
+                <div
+                  className="bg-bg rounded-xl border border-border p-4 hover:border-gold/40 transition-colors cursor-pointer"
+                  onClick={() => setModalEvento({
+                    id: ev.id,
+                    form: {
+                      tipo_evento: ev.tipo_evento, descricao: ev.descricao,
+                      data_evento: ev.data_evento ?? "", data_aproximada: ev.data_aproximada,
+                      relevancia: ev.relevancia, fonte: ev.fonte,
+                    },
+                  })}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs font-mono text-muted">
+                          {ev.data_evento ? fmtData(String(ev.data_evento)) : "Data?"}
+                          {ev.data_aproximada && " ~"}
+                        </span>
+                        <RelevBadge r={ev.relevancia} />
+                        {!ev.validado && <span className="text-xs text-muted italic">(não validado)</span>}
+                        {ev.fonte === "manual" && <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">manual</span>}
+                      </div>
+                      <p className="text-sm font-semibold text-text-main">{ev.tipo_evento.replace(/_/g, " ")}</p>
+                      <p className="text-sm text-muted mt-1">{ev.descricao}</p>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                      {!ev.validado && <Btn variant="green" onClick={() => validar(ev.id)}>Validar</Btn>}
+                      <Btn onClick={() => setModalEvento({
+                        id: ev.id,
+                        form: {
+                          tipo_evento: ev.tipo_evento, descricao: ev.descricao,
+                          data_evento: ev.data_evento ?? "", data_aproximada: ev.data_aproximada,
+                          relevancia: ev.relevancia, fonte: ev.fonte,
+                        },
+                      })}>Editar</Btn>
+                      <Btn variant="danger" onClick={() => deletarEvento(ev.id)} disabled={deletando === ev.id}>
+                        {deletando === ev.id ? "…" : "Excluir"}
+                      </Btn>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {modalEvento && (
         <ModalEvento
@@ -745,7 +859,9 @@ function AbaCronologia({ processoId }: { processoId: string }) {
 // ════════════════════════════════════════════════════════════════════════════
 
 const TIPOS_ANALISE = [
-  { id: "diagnostico_completo",  label: "⚖ Diagnóstico Completo", premium: true,
+  { id: "estrategia_vencedora",  label: "🏆 Estratégia Vencedora", premium: true,
+    descricao: "Plano de vitória completo: probabilidade de êxito, argumento campeão, top 5 argumentos, jurisprudência de ouro e plano de ataque 30 dias" },
+  { id: "diagnostico_completo",  label: "⚖ Diagnóstico Completo",
     descricao: "Análise completa como um advogado sênior: cronologia, falhas, teses, riscos e estratégia" },
   { id: "descricao_documentos",  label: "📋 Descrição dos Autos",
     descricao: "Descrição fiel e detalhada de cada peça processual com transcrição literal dos dispositivos" },
@@ -827,7 +943,9 @@ function ModalAnalise({ analise, processoId, processo, onUpdate, onClose, onDele
 
         {/* Conteúdo formatado */}
         <div className="bg-bg rounded-xl border border-border p-4 max-h-[60vh] overflow-y-auto">
-          {analise.tipo === "diagnostico_completo"
+          {analise.tipo === "estrategia_vencedora"
+            ? <EstrategiaVencedoraRenderer d={analise.conteudo_json} />
+            : analise.tipo === "diagnostico_completo"
             ? <DiagnosticoRenderer d={analise.conteudo_json} />
             : analise.tipo === "descricao_documentos"
             ? <DescricaoDocumentosRenderer d={analise.conteudo_json} />
@@ -889,6 +1007,300 @@ function ModalAnalise({ analise, processoId, processo, onUpdate, onClose, onDele
         </div>
       </div>
     </Modal>
+  );
+}
+
+// ── Renderizador: Estratégia Vencedora ───────────────────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function EstrategiaVencedoraRenderer({ d }: { d: any }) {
+  const prob = d?.probabilidade_exito ?? {};
+  const campeao = d?.argumento_campeao ?? {};
+  const top5: any[] = d?.top_argumentos ?? []; // eslint-disable-line @typescript-eslint/no-explicit-any
+  const contra: any[] = d?.contra_argumentos_adversario ?? []; // eslint-disable-line @typescript-eslint/no-explicit-any
+  const provas = d?.provas_decisivas ?? {};
+  const jurisp: any[] = d?.jurisprudencia_de_ouro ?? []; // eslint-disable-line @typescript-eslint/no-explicit-any
+  const plano30: any[] = d?.plano_30_dias ?? []; // eslint-disable-line @typescript-eslint/no-explicit-any
+  const negociacao = d?.negociacao ?? {};
+  const armadilhas: any[] = d?.armadilhas_criticas ?? []; // eslint-disable-line @typescript-eslint/no-explicit-any
+
+  const probTotal = (prob.vitoria_total ?? 0) + (prob.vitoria_parcial ?? 0);
+  const corProb = probTotal >= 60 ? "text-green-600" : probTotal >= 40 ? "text-yellow-600" : "text-red-500";
+
+  function Section({ title, children }: { title: string; children: React.ReactNode }) {
+    return (
+      <div className="border border-border rounded-xl overflow-hidden">
+        <div className="bg-surface px-4 py-2.5 border-b border-border">
+          <p className="text-sm font-bold text-text-main">{title}</p>
+        </div>
+        <div className="p-4">{children}</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+
+      {/* ① Probabilidade de Êxito */}
+      <div className="bg-gradient-to-r from-navy/5 to-gold/10 border border-gold/30 rounded-xl p-5">
+        <p className="text-xs font-bold uppercase tracking-wider text-muted mb-3">① Veredito de Probabilidade</p>
+        <div className="flex items-center gap-6 mb-3 flex-wrap">
+          <div className="text-center">
+            <p className={`text-4xl font-black ${corProb}`}>{prob.vitoria_total ?? "—"}%</p>
+            <p className="text-xs text-muted mt-0.5">Vitória Total</p>
+          </div>
+          <div className="text-center">
+            <p className="text-3xl font-bold text-yellow-600">{prob.vitoria_parcial ?? "—"}%</p>
+            <p className="text-xs text-muted mt-0.5">Vitória Parcial</p>
+          </div>
+          <div className="text-center">
+            <p className="text-2xl font-bold text-red-400">{prob.derrota_total ?? "—"}%</p>
+            <p className="text-xs text-muted mt-0.5">Derrota Total</p>
+          </div>
+          <div className="flex-1 min-w-[200px]">
+            {/* Barra de probabilidade */}
+            <div className="h-3 rounded-full bg-red-200 overflow-hidden">
+              <div className="h-full flex">
+                <div className="bg-green-500 transition-all" style={{ width: `${prob.vitoria_total ?? 0}%` }} />
+                <div className="bg-yellow-400 transition-all" style={{ width: `${prob.vitoria_parcial ?? 0}%` }} />
+              </div>
+            </div>
+            <div className="flex justify-between text-[10px] text-muted mt-1">
+              <span>🟢 Vitória</span><span>🟡 Parcial</span><span>🔴 Derrota</span>
+            </div>
+          </div>
+        </div>
+        {prob.justificativa && <p className="text-xs text-text-main italic border-l-2 border-gold pl-3">{prob.justificativa}</p>}
+        {prob.jurisprudencia_base && (
+          <p className="text-xs text-muted mt-2">📚 Base: {prob.jurisprudencia_base}</p>
+        )}
+        <div className="grid grid-cols-2 gap-3 mt-3">
+          {(prob.fatores_positivos ?? []).length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-green-700 mb-1">✅ Fatores positivos</p>
+              <ul className="space-y-0.5">{(prob.fatores_positivos ?? []).map((f: string, i: number) => (
+                <li key={i} className="text-xs text-text-main">• {f}</li>
+              ))}</ul>
+            </div>
+          )}
+          {(prob.fatores_negativos ?? []).length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-red-600 mb-1">⚠️ Fatores negativos</p>
+              <ul className="space-y-0.5">{(prob.fatores_negativos ?? []).map((f: string, i: number) => (
+                <li key={i} className="text-xs text-text-main">• {f}</li>
+              ))}</ul>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ② Argumento Campeão */}
+      {campeao.titulo && (
+        <Section title="② Argumento Campeão 🥇">
+          <div className="bg-gold/10 border border-gold/30 rounded-lg p-4">
+            <p className="text-sm font-bold text-text-main mb-1">{campeao.titulo}</p>
+            {campeao.fundamento_legal && (
+              <p className="text-xs font-semibold text-gold mb-2">{campeao.fundamento_legal}</p>
+            )}
+            {campeao.descricao && <p className="text-xs text-text-main mb-2">{campeao.descricao}</p>}
+            {campeao.precedente_vinculante && (
+              <p className="text-xs bg-navy/5 rounded px-2 py-1 font-mono">📌 {campeao.precedente_vinculante}</p>
+            )}
+            {campeao.fonte_no_processo && (
+              <p className="text-xs text-muted mt-2">Fonte: {campeao.fonte_no_processo}</p>
+            )}
+          </div>
+        </Section>
+      )}
+
+      {/* ③ Top 5 Argumentos */}
+      {top5.length > 0 && (
+        <Section title="③ Top 5 Argumentos por Impacto">
+          <div className="space-y-3">
+            {top5.map((arg: any, i: number) => ( // eslint-disable-line @typescript-eslint/no-explicit-any
+              <div key={i} className="flex gap-3 items-start">
+                <div className="w-7 h-7 rounded-full bg-gold text-navy text-xs font-black flex items-center justify-center shrink-0">
+                  {arg.rank ?? i + 1}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-text-main">{arg.titulo}</p>
+                  {arg.fundamento_legal && <p className="text-xs text-gold">{arg.fundamento_legal}</p>}
+                  {arg.precedente && <p className="text-xs text-muted italic">Precedente: {arg.precedente}</p>}
+                  {arg.como_articular && <p className="text-xs text-text-main mt-0.5">{arg.como_articular}</p>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {/* ④ Contra-argumentos do Adversário */}
+      {contra.length > 0 && (
+        <Section title="④ O Que o Adversário Vai Arguir (e Como Neutralizar)">
+          <div className="space-y-3">
+            {contra.map((c: any, i: number) => ( // eslint-disable-line @typescript-eslint/no-explicit-any
+              <div key={i} className={`border rounded-lg p-3 ${c.grau_perigo === "alto" ? "border-red-300 bg-red-50" : c.grau_perigo === "medio" ? "border-yellow-300 bg-yellow-50" : "border-border bg-bg"}`}>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${c.grau_perigo === "alto" ? "bg-red-500 text-white" : c.grau_perigo === "medio" ? "bg-yellow-400 text-navy" : "bg-muted/20 text-muted"}`}>
+                    {c.grau_perigo?.toUpperCase() ?? "—"}
+                  </span>
+                  <p className="text-xs font-semibold text-text-main">{c.argumento_provavel}</p>
+                </div>
+                {c.como_neutralizar && (
+                  <p className="text-xs text-green-700"><span className="font-semibold">↳ Neutralizar:</span> {c.como_neutralizar}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {/* ⑤ Provas Decisivas */}
+      {(provas.provas_a_produzir?.length > 0 || provas.provas_a_destacar?.length > 0) && (
+        <Section title="⑤ Provas Decisivas">
+          <div className="space-y-3">
+            {provas.provas_a_produzir?.length > 0 && (
+              <div>
+                <p className="text-xs font-bold text-orange-700 mb-2">🔬 Provas a Produzir</p>
+                {provas.provas_a_produzir.map((p: any, i: number) => ( // eslint-disable-line @typescript-eslint/no-explicit-any
+                  <div key={i} className="flex gap-2 mb-1">
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded h-fit ${p.urgencia === "imediata" ? "bg-red-100 text-red-600" : p.urgencia === "breve" ? "bg-orange-100 text-orange-600" : "bg-blue-100 text-blue-600"}`}>
+                      {p.urgencia}
+                    </span>
+                    <div>
+                      <p className="text-xs font-semibold text-text-main">{p.descricao}</p>
+                      {p.objetivo && <p className="text-xs text-muted">Objetivo: {p.objetivo}</p>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {provas.provas_a_destacar?.length > 0 && (
+              <div>
+                <p className="text-xs font-bold text-green-700 mb-1">✅ Provas a Destacar (já nos autos)</p>
+                <ul className="space-y-0.5">{provas.provas_a_destacar.map((p: string, i: number) => (
+                  <li key={i} className="text-xs text-text-main">• {p}</li>
+                ))}</ul>
+              </div>
+            )}
+            {provas.provas_a_impugnar?.length > 0 && (
+              <div>
+                <p className="text-xs font-bold text-red-600 mb-1">❌ Provas a Impugnar</p>
+                <ul className="space-y-0.5">{provas.provas_a_impugnar.map((p: string, i: number) => (
+                  <li key={i} className="text-xs text-text-main">• {p}</li>
+                ))}</ul>
+              </div>
+            )}
+            {provas.alerta_provas_ilicitas && (
+              <div className="bg-red-50 border border-red-300 rounded-lg px-3 py-2">
+                <p className="text-xs font-bold text-red-600">⚠️ Alerta Provas Ilícitas</p>
+                <p className="text-xs text-red-700">{provas.alerta_provas_ilicitas}</p>
+              </div>
+            )}
+          </div>
+        </Section>
+      )}
+
+      {/* ⑥ Jurisprudência de Ouro */}
+      {jurisp.length > 0 && (
+        <Section title="⑥ Jurisprudência de Ouro">
+          <div className="space-y-2">
+            {jurisp.map((j: any, i: number) => ( // eslint-disable-line @typescript-eslint/no-explicit-any
+              <div key={i} className="bg-navy/5 rounded-lg px-3 py-2.5">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xs font-bold text-navy px-2 py-0.5 rounded bg-navy/10">{j.tribunal}</span>
+                  {j.numero_referencia && <span className="text-xs text-muted font-mono">{j.numero_referencia}</span>}
+                </div>
+                {j.ementa_resumida && <p className="text-xs italic text-text-main mb-1">"{j.ementa_resumida}"</p>}
+                {j.argumento_suportado && <p className="text-xs text-blue-700">↳ Suporta: {j.argumento_suportado}</p>}
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {/* ⑦ Plano de Ataque 30 Dias */}
+      {plano30.length > 0 && (
+        <Section title="⑦ Plano de Ataque — Próximos 30 Dias">
+          <div className="space-y-2">
+            {plano30.map((a: any, i: number) => ( // eslint-disable-line @typescript-eslint/no-explicit-any
+              <div key={i} className="flex gap-3 items-start border border-border rounded-lg p-3">
+                <div className="w-7 h-7 rounded-full bg-navy text-white text-xs font-black flex items-center justify-center shrink-0">
+                  {a.prioridade ?? i + 1}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-bold text-text-main">{a.acao}</p>
+                  <div className="flex flex-wrap gap-2 mt-1">
+                    {a.prazo && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">⏰ {a.prazo}</span>}
+                    {a.responsavel && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">👤 {a.responsavel}</span>}
+                  </div>
+                  {a.fundamento && <p className="text-xs text-muted mt-1">{a.fundamento}</p>}
+                  {a.consequencia_de_nao_agir && (
+                    <p className="text-xs text-red-600 mt-1">⚠️ Se não agir: {a.consequencia_de_nao_agir}</p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {/* ⑧ Negociação */}
+      {negociacao.momento_ideal && (
+        <Section title="⑧ Análise de Acordo">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <p className="text-xs font-semibold text-muted mb-1">Momento ideal</p>
+              <p className="text-sm font-bold text-text-main">{negociacao.momento_ideal?.replace(/_/g, " ")}</p>
+              {negociacao.piso_recomendado && <p className="text-xs text-muted mt-1">Piso: {negociacao.piso_recomendado}</p>}
+              {negociacao.teto_aceitavel && <p className="text-xs text-muted">Teto: {negociacao.teto_aceitavel}</p>}
+            </div>
+            <div>
+              {negociacao.vantagens_de_litigar?.length > 0 && (
+                <div className="mb-2">
+                  <p className="text-xs font-semibold text-navy mb-1">Vantagens de litigar</p>
+                  <ul className="space-y-0.5">{negociacao.vantagens_de_litigar.map((v: string, i: number) => (
+                    <li key={i} className="text-xs text-text-main">• {v}</li>
+                  ))}</ul>
+                </div>
+              )}
+              {negociacao.vantagens_de_acordar?.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-green-700 mb-1">Vantagens de acordar</p>
+                  <ul className="space-y-0.5">{negociacao.vantagens_de_acordar.map((v: string, i: number) => (
+                    <li key={i} className="text-xs text-text-main">• {v}</li>
+                  ))}</ul>
+                </div>
+              )}
+            </div>
+          </div>
+        </Section>
+      )}
+
+      {/* ⑨ Armadilhas Críticas */}
+      {armadilhas.length > 0 && (
+        <Section title="⑨ Armadilhas Críticas — Não Cometa Esses Erros">
+          <div className="space-y-2">
+            {armadilhas.map((a: any, i: number) => ( // eslint-disable-line @typescript-eslint/no-explicit-any
+              <div key={i} className="bg-red-50 border border-red-200 rounded-lg p-3">
+                <p className="text-xs font-bold text-red-700">💣 {a.armadilha}</p>
+                {a.consequencia && <p className="text-xs text-red-600 mt-0.5">Consequência: {a.consequencia}</p>}
+                {a.como_evitar && <p className="text-xs text-green-700 mt-1">✅ Como evitar: {a.como_evitar}</p>}
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {/* Mensagem ao Cliente */}
+      {d?.mensagem_ao_cliente && (
+        <div className="bg-gold/10 border border-gold/30 rounded-xl p-4">
+          <p className="text-xs font-bold text-gold mb-2">💬 Mensagem ao Cliente</p>
+          <p className="text-sm text-text-main leading-relaxed italic">"{d.mensagem_ao_cliente}"</p>
+        </div>
+      )}
+
+    </div>
   );
 }
 
@@ -1513,16 +1925,16 @@ function AbaAnalises({ processoId, processo, onRefreshProcesso }: { processoId: 
                 </p>
               </div>
 
-              {/* Diagnóstico Completo — destaque */}
+              {/* Estratégia Vencedora — destaque premium */}
               {(() => {
                 const dc = TIPOS_ANALISE.find(t => t.premium);
                 if (!dc) return null;
                 return (
                   <button onClick={() => iniciarGeracao(dc.id)} disabled={!!gerando}
                     className="w-full flex items-start gap-4 p-4 rounded-xl border-2 text-left transition-all border-gold/60 bg-gradient-to-r from-gold/5 to-transparent hover:border-gold hover:from-gold/10">
-                    <div className="text-2xl flex-shrink-0">⚖</div>
+                    <div className="text-2xl flex-shrink-0">🏆</div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-bold text-text-main">Diagnóstico Completo</p>
+                      <p className="text-sm font-bold text-text-main">{dc.label}</p>
                       <p className="text-xs text-muted mt-0.5">{dc.descricao}</p>
                     </div>
                     <span className="text-xs font-semibold text-gold flex-shrink-0">Gerar →</span>
@@ -1732,6 +2144,7 @@ function AbaRevisao({ processoId, onRefreshProcesso }: { processoId: string; onR
   const [modalTarefa, setModalTarefa] = useState<TarefaRevisao | null>(null);
   const [deletando, setDeletando] = useState<string | null>(null);
   const [busca, setBusca] = useState("");
+  const [timesheetAberto, setTimesheetAberto] = useState<string | null>(null);
 
   async function handleDeletar(id: string, titulo: string) {
     if (!confirm(`Excluir a tarefa "${titulo}"?`)) return;
@@ -1791,6 +2204,16 @@ function AbaRevisao({ processoId, onRefreshProcesso }: { processoId: string; onR
                 {t.deadline && <p className="text-xs text-orange-500 mt-1">Prazo: {fmtData(t.deadline)}</p>}
               </div>
               <div className="flex gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                <button
+                  onClick={() => setTimesheetAberto(timesheetAberto === t.id ? null : t.id)}
+                  title="Timesheet"
+                  className={`text-xs px-2.5 py-1.5 rounded-lg border transition-colors font-semibold ${
+                    timesheetAberto === t.id
+                      ? "bg-gold text-navy border-gold"
+                      : "border-border text-muted hover:border-gold/40 hover:text-text-main"
+                  }`}>
+                  ⏱
+                </button>
                 {t.status === "pendente" && (
                   <>
                     <Btn variant="green" onClick={async () => {
@@ -1813,6 +2236,15 @@ function AbaRevisao({ processoId, onRefreshProcesso }: { processoId: string; onR
                 </Btn>
               </div>
             </div>
+            {timesheetAberto === t.id && (
+              <div onClick={e => e.stopPropagation()}>
+                <TimesheetTarefa
+                  processoId={processoId}
+                  tarefaId={t.id}
+                  tarefaTitulo={t.titulo}
+                />
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -1837,11 +2269,22 @@ function AbaRevisao({ processoId, onRefreshProcesso }: { processoId: string; onR
 // ════════════════════════════════════════════════════════════════════════════
 
 const TIPOS_MINUTA = [
-  { id: "resumo_executivo",   label: "Resumo Executivo" },
-  { id: "minuta_recurso",     label: "Minuta de Recurso" },
-  { id: "minuta_contestacao", label: "Minuta de Contestação" },
-  { id: "prompt_juridico",    label: "Prompt Jurídico" },
-  { id: "parecer",            label: "Parecer" },
+  // Petições
+  { id: "peticao_inicial",            label: "Petição Inicial",                    cat: "📄 Petições" },
+  { id: "tutela_antecipada",          label: "Tutela Antecipada / Cautelar",        cat: "📄 Petições" },
+  { id: "impugnacao_cumprimento",     label: "Impugnação ao Cumprimento",           cat: "📄 Petições" },
+  // Recursos
+  { id: "apelacao_civel",             label: "Recurso de Apelação Cível",           cat: "⚖ Recursos" },
+  { id: "embargos_declaracao",        label: "Embargos de Declaração",              cat: "⚖ Recursos" },
+  { id: "agravo_instrumento",         label: "Agravo de Instrumento",               cat: "⚖ Recursos" },
+  { id: "recurso_ordinario_trabalhista", label: "Recurso Ordinário Trabalhista",    cat: "⚖ Recursos" },
+  { id: "recurso_especial",           label: "Recurso Especial (REsp)",             cat: "⚖ Recursos" },
+  // Remédios
+  { id: "habeas_corpus",              label: "Habeas Corpus",                       cat: "🛡 Remédios Constitucionais" },
+  { id: "mandado_seguranca",          label: "Mandado de Segurança",                cat: "🛡 Remédios Constitucionais" },
+  // Pareceres
+  { id: "parecer",                    label: "Parecer Jurídico",                    cat: "📋 Pareceres" },
+  { id: "resumo_executivo",           label: "Resumo Executivo",                    cat: "📋 Pareceres" },
 ];
 
 function ModalMinuta({ minuta, processoId, onUpdate, onClose }: {
@@ -1962,10 +2405,16 @@ function AbaMinutas({ processoId }: { processoId: string }) {
           </p>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-muted mb-1">Tipo</label>
+              <label className="block text-xs font-semibold text-muted mb-1">Tipo de documento</label>
               <select value={form.tipo} onChange={e => setForm(f => ({ ...f, tipo: e.target.value }))}
                 className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-bg text-text-main focus:outline-none focus:ring-2 focus:ring-gold/40">
-                {TIPOS_MINUTA.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+                {Array.from(new Set(TIPOS_MINUTA.map(t => t.cat))).map(cat => (
+                  <optgroup key={cat} label={cat}>
+                    {TIPOS_MINUTA.filter(t => t.cat === cat).map(t => (
+                      <option key={t.id} value={t.id}>{t.label}</option>
+                    ))}
+                  </optgroup>
+                ))}
               </select>
             </div>
             <div>
@@ -2117,117 +2566,314 @@ function AbaSnapshots({ processoId }: { processoId: string }) {
 // ABA: CHAT
 // ════════════════════════════════════════════════════════════════════════════
 
+// ── Renderer simples de Markdown para o chat ─────────────────────────────────
+function ChatMarkdown({ text }: { text: string }) {
+  // Converte Markdown básico em elementos React sem dependência externa
+  const lines = text.split("\n");
+  const elements: React.ReactNode[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    if (line.startsWith("### ")) {
+      elements.push(<h4 key={i} className="text-sm font-bold text-text-main mt-3 mb-1">{line.slice(4)}</h4>);
+    } else if (line.startsWith("## ")) {
+      elements.push(<h3 key={i} className="text-sm font-bold text-text-main mt-3 mb-1 border-b border-border pb-1">{line.slice(3)}</h3>);
+    } else if (line.startsWith("**") && line.endsWith("**") && line.length > 4) {
+      elements.push(<p key={i} className="text-sm font-bold text-text-main mt-2">{line.slice(2, -2)}</p>);
+    } else if (line.startsWith("- ") || line.startsWith("• ")) {
+      elements.push(
+        <div key={i} className="flex gap-2 text-sm">
+          <span className="text-gold flex-shrink-0 mt-0.5">•</span>
+          <span className="text-text-main">{inlineFormat(line.slice(2))}</span>
+        </div>
+      );
+    } else if (/^\d+\.\s/.test(line)) {
+      const num = line.match(/^(\d+)\./)?.[1];
+      elements.push(
+        <div key={i} className="flex gap-2 text-sm mt-0.5">
+          <span className="text-gold font-bold flex-shrink-0 w-5 text-right">{num}.</span>
+          <span className="text-text-main">{inlineFormat(line.replace(/^\d+\.\s/, ""))}</span>
+        </div>
+      );
+    } else if (line.trim() === "" || line.trim() === "---") {
+      if (line.trim() === "---") elements.push(<hr key={i} className="border-border my-2" />);
+      else elements.push(<div key={i} className="h-1.5" />);
+    } else if (line.trim()) {
+      elements.push(<p key={i} className="text-sm text-text-main leading-relaxed">{inlineFormat(line)}</p>);
+    }
+    i++;
+  }
+  return <div className="space-y-0.5">{elements}</div>;
+}
+
+function inlineFormat(text: string): React.ReactNode {
+  // **bold** e `code` inline
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
+  return parts.map((p, i) => {
+    if (p.startsWith("**") && p.endsWith("**")) return <strong key={i}>{p.slice(2, -2)}</strong>;
+    if (p.startsWith("`") && p.endsWith("`")) return <code key={i} className="bg-surface border border-border rounded px-1 text-xs font-mono text-gold">{p.slice(1, -1)}</code>;
+    return p;
+  });
+}
+
+// ── AbaChat ───────────────────────────────────────────────────────────────────
+
 function AbaChat({ processoId }: { processoId: string }) {
-  type Msg = { role: "user" | "assistant"; content: string; seg?: number; fontes?: { tipo_peca?: string; paginas?: string }[] };
+  type Fonte = { tipo_peca?: string; paginas?: string };
+  type Msg = {
+    role: "user" | "assistant";
+    content: string;
+    seg?: number;
+    fontes?: Fonte[];
+    modelo?: "haiku" | "sonnet";
+  };
+
   const [mensagens, setMensagens] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [enviando, setEnviando] = useState(false);
+  const [usarSonnet, setUsarSonnet] = useState(false);
+  const [mostrarFontes, setMostrarFontes] = useState<number | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [mensagens]);
 
-  async function enviar(e: React.FormEvent) {
-    e.preventDefault();
-    if (!input.trim() || enviando) return;
-    const texto = input.trim();
+  async function enviar(texto?: string) {
+    const msg = (texto ?? input).trim();
+    if (!msg || enviando) return;
     setInput("");
-    setMensagens(prev => [...prev, { role: "user", content: texto }]);
+    const novasMensagens: Msg[] = [...mensagens, { role: "user", content: msg }];
+    setMensagens(novasMensagens);
     setEnviando(true);
     const t0 = Date.now();
     try {
-      const hist = mensagens.map(m => ({ role: m.role, content: m.content }));
-      hist.push({ role: "user", content: texto });
-      const r = await api.analises.chat(processoId, hist);
+      const hist = novasMensagens.map(m => ({ role: m.role, content: m.content }));
+      const r = await api.analises.chat(processoId, hist, undefined, usarSonnet);
       const seg = Math.round((Date.now() - t0) / 1000);
       setMensagens(prev => [...prev, {
         role: "assistant",
         content: r.resposta,
         seg,
-        fontes: r.fontes as { tipo_peca?: string; paginas?: string }[],
+        fontes: r.fontes as Fonte[],
+        modelo: usarSonnet ? "sonnet" : "haiku",
       }]);
     } catch (err) {
       setMensagens(prev => [...prev, {
         role: "assistant",
-        content: `Erro: ${err instanceof Error ? err.message : "falha na API"}`,
+        content: `❌ Erro: ${err instanceof Error ? err.message : "falha na API"}`,
         seg: Math.round((Date.now() - t0) / 1000),
+        modelo: usarSonnet ? "sonnet" : "haiku",
       }]);
     } finally {
       setEnviando(false);
+      setTimeout(() => inputRef.current?.focus(), 100);
     }
   }
 
-  const sugestoes = [
-    "Qual é o estado atual do processo?",
-    "A quem foi destinado o último prazo?",
-    "Quais são as partes do processo?",
-    "Há alguma decisão recente pendente de recurso?",
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      enviar();
+    }
+  }
+
+  const sugestoesFatuais = [
+    "Quais são as partes e seus advogados?",
+    "Qual foi o último ato processual?",
+    "Há algum prazo urgente neste processo?",
+    "Qual o valor da causa?",
   ];
 
+  const sugestoesEstrategicas = [
+    "Quais são os principais argumentos para o recurso?",
+    "O que a sentença decidiu sobre cada pedido?",
+    "Há nulidades processuais que podemos arguir?",
+    "Qual é a chance de êxito no STJ com esse caso?",
+  ];
+
+  const sugestoes = usarSonnet ? sugestoesEstrategicas : sugestoesFatuais;
+
   return (
-    <div className="flex flex-col h-[600px]">
-      <div className="flex items-center gap-2 mb-3 pb-3 border-b border-border flex-shrink-0">
-        <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-semibold">● Haiku — resposta rápida</span>
-        <span className="text-xs text-muted">Perguntas diretas respondem em segundos</span>
+    <div className="flex flex-col h-[680px]">
+
+      {/* Header com seletor de modo */}
+      <div className="flex items-center justify-between gap-3 mb-3 pb-3 border-b border-border flex-shrink-0">
+        <div className="flex items-center gap-2">
+          <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${usarSonnet ? "bg-purple-100 text-purple-700" : "bg-green-100 text-green-700"}`}>
+            {usarSonnet ? "⚡ Sonnet — análise profunda" : "● Haiku — resposta rápida"}
+          </span>
+          {mensagens.length > 0 && (
+            <span className="text-xs text-muted">{mensagens.filter(m => m.role === "user").length} pergunta{mensagens.filter(m => m.role === "user").length !== 1 ? "s" : ""}</span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {mensagens.length > 0 && (
+            <button onClick={() => setMensagens([])}
+              className="text-xs text-muted hover:text-danger px-2 py-1 rounded hover:bg-danger/10 transition-all">
+              Limpar
+            </button>
+          )}
+          <div className="flex rounded-lg border border-border overflow-hidden text-xs">
+            <button
+              onClick={() => setUsarSonnet(false)}
+              className={`px-3 py-1.5 font-semibold transition-colors ${!usarSonnet ? "bg-green-600 text-white" : "bg-bg text-muted hover:text-text-main"}`}>
+              Haiku
+            </button>
+            <button
+              onClick={() => setUsarSonnet(true)}
+              className={`px-3 py-1.5 font-semibold transition-colors ${usarSonnet ? "bg-purple-600 text-white" : "bg-bg text-muted hover:text-text-main"}`}>
+              Sonnet
+            </button>
+          </div>
+        </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto space-y-4 pb-4">
+      {/* Mensagens */}
+      <div className="flex-1 overflow-y-auto space-y-4 pb-4 pr-1">
         {!mensagens.length && (
-          <div className="flex flex-col items-center justify-center h-full text-center text-muted gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-gold/10 flex items-center justify-center">
-              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gold">
+          <div className="flex flex-col items-center justify-center h-full text-center gap-5">
+            <div className="w-16 h-16 rounded-2xl bg-gold/10 flex items-center justify-center">
+              <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-gold">
                 <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
               </svg>
             </div>
             <div>
-              <p className="text-sm font-semibold text-text-main mb-1">Chat com o Processo</p>
-              <p className="text-xs max-w-xs">Faça perguntas sobre os documentos. Respostas em segundos.</p>
+              <p className="text-sm font-bold text-text-main mb-1">Consultor Jurídico do Processo</p>
+              <p className="text-xs text-muted max-w-xs">
+                {usarSonnet
+                  ? "Modo estratégico: análises profundas com contexto completo das análises já realizadas"
+                  : "Modo rápido: respostas em segundos para perguntas factuais sobre os autos"}
+              </p>
             </div>
-            <div className="grid grid-cols-2 gap-2 w-full max-w-sm">
-              {sugestoes.map((s, i) => (
-                <button key={i} onClick={() => { setInput(s); }}
-                  className="text-left text-xs px-3 py-2 rounded-lg border border-border hover:border-gold/50 hover:bg-gold/5 text-muted hover:text-text-main transition-all">
-                  {s}
-                </button>
-              ))}
+            <div>
+              <p className="text-xs font-semibold text-muted mb-2 uppercase tracking-wider">
+                {usarSonnet ? "Perguntas estratégicas" : "Perguntas factuais"}
+              </p>
+              <div className="grid grid-cols-2 gap-2 w-full max-w-md">
+                {sugestoes.map((s, i) => (
+                  <button key={i} onClick={() => enviar(s)}
+                    className="text-left text-xs px-3 py-2.5 rounded-xl border border-border hover:border-gold/60 hover:bg-gold/5 text-muted hover:text-text-main transition-all leading-relaxed">
+                    {s}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         )}
+
         {mensagens.map((m, i) => (
-          <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-            <div className={`max-w-[85%] rounded-xl px-4 py-3 text-sm ${m.role === "user" ? "bg-navy text-white" : "bg-surface border border-border text-text-main"}`}>
-              <p className="whitespace-pre-wrap">{m.content}</p>
+          <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"} group`}>
+            {m.role === "assistant" && (
+              <div className="w-7 h-7 rounded-full bg-gold/10 flex items-center justify-center flex-shrink-0 mr-2 mt-1">
+                <span className="text-xs">⚖</span>
+              </div>
+            )}
+            <div className={`max-w-[88%] ${m.role === "user" ? "" : "flex-1 min-w-0"}`}>
+              <div className={`rounded-xl px-4 py-3 ${
+                m.role === "user"
+                  ? "bg-navy text-white text-sm"
+                  : "bg-surface border border-border"
+              }`}>
+                {m.role === "user"
+                  ? <p className="whitespace-pre-wrap text-sm">{m.content}</p>
+                  : <ChatMarkdown text={m.content} />
+                }
+              </div>
+
               {m.role === "assistant" && (
-                <p className="text-xs opacity-50 mt-2 flex items-center gap-2">
-                  {m.seg !== undefined && <span>⏱ {m.seg}s</span>}
+                <div className="flex items-center gap-3 mt-1 px-1">
+                  <span className="text-[10px] text-muted">
+                    {m.seg !== undefined ? `⏱ ${m.seg}s` : ""}
+                    {m.modelo === "sonnet" ? " · Sonnet" : m.modelo === "haiku" ? " · Haiku" : ""}
+                  </span>
                   {m.fontes && m.fontes.length > 0 && (
-                    <span>Fontes: {m.fontes.slice(0,3).map(f => `${(f.tipo_peca ?? "?").replace(/_/g," ")} p.${f.paginas ?? "?"}`).join(", ")}</span>
+                    <button
+                      className="text-[10px] text-gold hover:underline"
+                      onClick={() => setMostrarFontes(mostrarFontes === i ? null : i)}>
+                      {mostrarFontes === i ? "Ocultar fontes" : `📎 ${m.fontes.length} fonte${m.fontes.length !== 1 ? "s" : ""}`}
+                    </button>
                   )}
-                </p>
+                  <button
+                    className="text-[10px] text-muted hover:text-text-main opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={() => navigator.clipboard?.writeText(m.content)}>
+                    Copiar
+                  </button>
+                </div>
+              )}
+
+              {m.role === "assistant" && mostrarFontes === i && m.fontes && m.fontes.length > 0 && (
+                <div className="mt-1 px-1">
+                  <div className="flex flex-wrap gap-1.5">
+                    {m.fontes.map((f, fi) => (
+                      <span key={fi} className="text-[10px] bg-surface border border-border rounded-full px-2.5 py-1 text-muted">
+                        {(f.tipo_peca ?? "?").replace(/_/g, " ")} pág.{f.paginas ?? "?"}
+                      </span>
+                    ))}
+                  </div>
+                </div>
               )}
             </div>
           </div>
         ))}
+
         {enviando && (
-          <div className="flex justify-start items-center gap-2">
+          <div className="flex justify-start items-start gap-2">
+            <div className="w-7 h-7 rounded-full bg-gold/10 flex items-center justify-center flex-shrink-0">
+              <span className="text-xs">⚖</span>
+            </div>
             <div className="bg-surface border border-border rounded-xl px-4 py-3 flex items-center gap-2">
-              <Spinner sm />
-              <span className="text-xs text-muted">Pensando…</span>
+              <div className="flex gap-1">
+                <span className="w-1.5 h-1.5 bg-gold rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                <span className="w-1.5 h-1.5 bg-gold rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                <span className="w-1.5 h-1.5 bg-gold rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+              </div>
+              <span className="text-xs text-muted">{usarSonnet ? "Analisando com Sonnet…" : "Consultando…"}</span>
             </div>
           </div>
         )}
         <div ref={bottomRef} />
       </div>
-      <form onSubmit={enviar} className="flex gap-2 pt-3 border-t border-border flex-shrink-0">
-        <input value={input} onChange={e => setInput(e.target.value)}
-          className="flex-1 border border-border rounded-lg px-3 py-2.5 text-sm bg-bg text-text-main placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-gold/40"
-          placeholder="Pergunta sobre o processo… (ex: qual o último prazo?)" />
-        <button type="submit" disabled={enviando || !input.trim()}
-          className="bg-gold text-navy font-bold rounded-lg px-4 py-2.5 text-sm hover:bg-gold-light transition-all disabled:opacity-50">
-          →
-        </button>
-      </form>
+
+      {/* Input */}
+      <div className="pt-3 border-t border-border flex-shrink-0">
+        {mensagens.length > 0 && !enviando && (
+          <div className="flex gap-2 mb-2 overflow-x-auto pb-1">
+            {(usarSonnet ? sugestoesEstrategicas : sugestoesFatuais).slice(0, 3).map((s, i) => (
+              <button key={i} onClick={() => enviar(s)}
+                className="text-[10px] font-semibold px-2.5 py-1 rounded-full border border-border hover:border-gold/60 hover:bg-gold/5 text-muted hover:text-text-main transition-all whitespace-nowrap flex-shrink-0">
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="flex gap-2 items-end">
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            rows={2}
+            className="flex-1 border border-border rounded-xl px-3 py-2.5 text-sm bg-bg text-text-main placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-gold/40 resize-none"
+            placeholder={usarSonnet
+              ? "Pergunta estratégica… (Shift+Enter = nova linha)"
+              : "Pergunta sobre os autos… (Enter para enviar)"
+            }
+          />
+          <button
+            onClick={() => enviar()}
+            disabled={enviando || !input.trim()}
+            className={`rounded-xl px-4 py-2.5 text-sm font-bold transition-all disabled:opacity-50 ${usarSonnet ? "bg-purple-600 hover:bg-purple-500 text-white" : "bg-gold text-navy hover:bg-gold-light"}`}>
+            →
+          </button>
+        </div>
+        <p className="text-[10px] text-muted mt-1.5 text-center">
+          Enter para enviar · Shift+Enter para nova linha · {usarSonnet ? "Sonnet: resposta profunda (~10s)" : "Haiku: resposta rápida (~3s)"}
+        </p>
+      </div>
     </div>
   );
 }
@@ -2571,6 +3217,8 @@ type PrazoForm = {
   fundamento_legal: string;
   data_inicio: string;
   prazo_dias: string;
+  tipo_contagem: string;   // "uteis" | "corridos" | "meses"
+  uf: string;              // ex: "SP" — para feriados estaduais
   vencimento: string;
   prioridade: string;
   responsavel: string;
@@ -2579,8 +3227,8 @@ type PrazoForm = {
 
 const PRAZO_FORM_VAZIO: PrazoForm = {
   titulo: "", descricao: "", tipo: "processual", fundamento_legal: "",
-  data_inicio: "", prazo_dias: "", vencimento: "", prioridade: "normal",
-  responsavel: "", observacoes: "",
+  data_inicio: "", prazo_dias: "", tipo_contagem: "uteis", uf: "",
+  vencimento: "", prioridade: "normal", responsavel: "", observacoes: "",
 };
 
 type ImportItem = {
@@ -2603,10 +3251,40 @@ function AbaPrazos({ processoId }: { processoId: string }) {
   const [reabrindo, setReabrindo] = useState<string | null>(null);
   const [importModal, setImportModal] = useState<ImportItem[] | null>(null);
   const [importando, setImportando] = useState(false);
+  const [calcInfo, setCalcInfo] = useState<{ vencimento: string; dias_uteis_restantes: number; status: string } | null>(null);
+  const [calcLoading, setCalcLoading] = useState(false);
 
   useEffect(() => {
     api.prazos.listar(processoId).then(setPrazos).finally(() => setLoading(false));
   }, [processoId]);
+
+  // Auto-calcula vencimento quando data_inicio + prazo_dias estão preenchidos
+  useEffect(() => {
+    const f = modal?.form;
+    if (!f || !f.data_inicio || !f.prazo_dias || parseInt(f.prazo_dias) < 1) {
+      setCalcInfo(null);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setCalcLoading(true);
+      try {
+        const r = await api.prazos.calcularVencimento({
+          data_base: f.data_inicio,
+          prazo_dias: parseInt(f.prazo_dias),
+          tipo: f.tipo_contagem || "uteis",
+          uf: f.uf || undefined,
+        });
+        setCalcInfo({ vencimento: r.vencimento, dias_uteis_restantes: r.dias_uteis_restantes, status: r.status });
+        // Auto-preenche o campo vencimento se estiver vazio ou era calculado antes
+        setModal(m => m ? ({ ...m, form: { ...m.form, vencimento: r.vencimento } }) : m);
+      } catch {
+        setCalcInfo(null);
+      } finally {
+        setCalcLoading(false);
+      }
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [modal?.form.data_inicio, modal?.form.prazo_dias, modal?.form.tipo_contagem, modal?.form.uf]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Ordenação: vencido → vencendo → em_aberto → cumprido/suspendo/cancelado ──
   const sorted = [...prazos].sort((a, b) => {
@@ -2636,6 +3314,7 @@ function AbaPrazos({ processoId }: { processoId: string }) {
         titulo: p.titulo, descricao: p.descricao ?? "", tipo: p.tipo,
         fundamento_legal: p.fundamento_legal ?? "",
         data_inicio: p.data_inicio ?? "", prazo_dias: p.prazo_dias?.toString() ?? "",
+        tipo_contagem: "uteis", uf: "",
         vencimento: p.vencimento, prioridade: p.prioridade,
         responsavel: p.responsavel ?? "", observacoes: p.observacoes ?? "",
       },
@@ -2669,6 +3348,7 @@ function AbaPrazos({ processoId }: { processoId: string }) {
         setPrazos(prev => [...prev, novo]);
       }
       setModal(null);
+      setCalcInfo(null);
     } catch (e) {
       alert(e instanceof Error ? e.message : "Erro ao salvar");
     } finally {
@@ -2942,7 +3622,7 @@ function AbaPrazos({ processoId }: { processoId: string }) {
       {modal && (
         <Modal
           title={modal.id ? "Editar Prazo" : "Novo Prazo"}
-          onClose={() => setModal(null)}>
+          onClose={() => { setModal(null); setCalcInfo(null); }}>
           <div className="space-y-4">
             <div>
               <label className="block text-xs font-semibold text-muted mb-1">Título *</label>
@@ -2975,32 +3655,75 @@ function AbaPrazos({ processoId }: { processoId: string }) {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-semibold text-muted mb-1">Data de início (opcional)</label>
-                <input type="date"
-                  className="w-full text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:border-gold"
-                  value={modal.form.data_inicio}
-                  onChange={e => setModal(m => m && ({ ...m, form: { ...m.form, data_inicio: e.target.value } }))}
-                />
+            {/* Cálculo automático de vencimento */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 space-y-3">
+              <p className="text-xs font-semibold text-blue-700">⚖️ Calculadora de Prazo (feriados + dias úteis)</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-muted mb-1">Data de início</label>
+                  <input type="date"
+                    className="w-full text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:border-gold bg-white"
+                    value={modal.form.data_inicio}
+                    onChange={e => setModal(m => m && ({ ...m, form: { ...m.form, data_inicio: e.target.value } }))}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-muted mb-1">Número de dias</label>
+                  <input type="number" min="1"
+                    className="w-full text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:border-gold bg-white"
+                    value={modal.form.prazo_dias}
+                    placeholder="Ex: 15"
+                    onChange={e => setModal(m => m && ({ ...m, form: { ...m.form, prazo_dias: e.target.value } }))}
+                  />
+                </div>
               </div>
-              <div>
-                <label className="block text-xs font-semibold text-muted mb-1">Prazo em dias (opcional)</label>
-                <input type="number" min="1"
-                  className="w-full text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:border-gold"
-                  value={modal.form.prazo_dias}
-                  placeholder="Ex: 15"
-                  onChange={e => setModal(m => m && ({ ...m, form: { ...m.form, prazo_dias: e.target.value } }))}
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-muted mb-1">Tipo de contagem</label>
+                  <select
+                    className="w-full text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:border-gold bg-white"
+                    value={modal.form.tipo_contagem}
+                    onChange={e => setModal(m => m && ({ ...m, form: { ...m.form, tipo_contagem: e.target.value } }))}>
+                    <option value="uteis">Dias úteis (CPC art.219)</option>
+                    <option value="corridos">Dias corridos</option>
+                    <option value="meses">Meses</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-muted mb-1">UF (feriados estaduais)</label>
+                  <select
+                    className="w-full text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:border-gold bg-white"
+                    value={modal.form.uf}
+                    onChange={e => setModal(m => m && ({ ...m, form: { ...m.form, uf: e.target.value } }))}>
+                    <option value="">Apenas nacionais</option>
+                    {["AC","AL","AM","AP","BA","CE","DF","ES","GO","MA","MG","MS","MT","PA","PB","PE","PI","PR","RJ","RN","RO","RR","RS","SC","SE","SP","TO"].map(uf => (
+                      <option key={uf} value={uf}>{uf}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
+              {/* Resultado do cálculo */}
+              {calcLoading && (
+                <p className="text-xs text-blue-500 italic">Calculando…</p>
+              )}
+              {!calcLoading && calcInfo && (
+                <div className="flex items-center gap-3 bg-white rounded-lg px-3 py-2 border border-blue-200">
+                  <span className="text-sm font-bold text-blue-700">
+                    📅 {new Date(calcInfo.vencimento + "T12:00:00").toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })}
+                  </span>
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${calcInfo.status === "vencido" ? "bg-red-100 text-red-600" : calcInfo.dias_uteis_restantes <= 3 ? "bg-orange-100 text-orange-600" : "bg-green-100 text-green-700"}`}>
+                    {calcInfo.status === "vencido" ? "VENCIDO" : calcInfo.status === "hoje" ? "HOJE" : `${calcInfo.dias_uteis_restantes} dia(s) útil(eis)`}
+                  </span>
+                </div>
+              )}
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-muted mb-1">Vencimento *</label>
+              <label className="block text-xs font-semibold text-muted mb-1">Vencimento * <span className="text-muted font-normal">(preenchido automaticamente acima)</span></label>
               <input type="date"
                 className="w-full text-sm border border-border rounded-lg px-3 py-2 focus:outline-none focus:border-gold"
                 value={modal.form.vencimento}
-                onChange={e => setModal(m => m && ({ ...m, form: { ...m.form, vencimento: e.target.value } }))}
+                onChange={e => { setCalcInfo(null); setModal(m => m && ({ ...m, form: { ...m.form, vencimento: e.target.value } })); }}
               />
             </div>
 
@@ -3035,7 +3758,7 @@ function AbaPrazos({ processoId }: { processoId: string }) {
             </div>
 
             <div className="flex justify-end gap-2 pt-2 border-t border-border">
-              <Btn onClick={() => setModal(null)}>Cancelar</Btn>
+              <Btn onClick={() => { setModal(null); setCalcInfo(null); }}>Cancelar</Btn>
               <Btn variant="gold" onClick={salvar} disabled={salvando}>
                 {salvando ? "Salvando…" : modal.id ? "Salvar alterações" : "Criar prazo"}
               </Btn>
@@ -3100,6 +3823,437 @@ function AbaPrazos({ processoId }: { processoId: string }) {
   );
 }
 
+
+// ════════════════════════════════════════════════════════════════════════════
+// ABA: ATENDIMENTOS
+// ════════════════════════════════════════════════════════════════════════════
+
+const TIPOS_ATENDIMENTO = [
+  { value: "presencial",       label: "🤝 Presencial" },
+  { value: "videoconferencia", label: "📹 Videoconferência" },
+  { value: "telefone",         label: "📞 Telefone" },
+  { value: "email",            label: "✉️  E-mail" },
+];
+
+const ATEND_FORM_VAZIO = {
+  data_atendimento: new Date().toISOString().slice(0, 10),
+  tipo: "presencial",
+  duracao_min: 60,
+  assunto: "",
+  anotacoes: "",
+  participantes: "",
+};
+
+function AbaAtendimentos({ processoId }: { processoId: string }) {
+  const [atendimentos, setAtendimentos] = useState<Atendimento[]>([]);
+  const [loading, setLoading]           = useState(true);
+  const [modal, setModal]               = useState<{ form: typeof ATEND_FORM_VAZIO; id?: string } | null>(null);
+  const [salvando, setSalvando]         = useState(false);
+  const [deletando, setDeletando]       = useState<string | null>(null);
+  const [expandido, setExpandido]       = useState<string | null>(null);
+  const [totalHoras, setTotalHoras]     = useState(0);
+
+  useEffect(() => {
+    api.atendimentos.listar(processoId)
+      .then(a => {
+        setAtendimentos(a);
+        const total = a.reduce((acc, x) => acc + x.duracao_min, 0);
+        setTotalHoras(total);
+      })
+      .finally(() => setLoading(false));
+  }, [processoId]);
+
+  async function salvar() {
+    if (!modal) return;
+    setSalvando(true);
+    try {
+      const body = { ...modal.form, duracao_min: Number(modal.form.duracao_min) };
+      if (modal.id) {
+        const a = await api.atendimentos.atualizar(processoId, modal.id, body);
+        setAtendimentos(prev => prev.map(x => x.id === modal.id ? a : x));
+      } else {
+        const a = await api.atendimentos.criar(processoId, body);
+        setAtendimentos(prev => [a, ...prev]);
+        setTotalHoras(h => h + Number(modal.form.duracao_min));
+      }
+      setModal(null);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Erro ao salvar");
+    } finally { setSalvando(false); }
+  }
+
+  async function deletar(id: string) {
+    if (!confirm("Excluir este atendimento?")) return;
+    setDeletando(id);
+    try {
+      await api.atendimentos.deletar(processoId, id);
+      const removido = atendimentos.find(a => a.id === id);
+      setAtendimentos(prev => prev.filter(a => a.id !== id));
+      if (removido) setTotalHoras(h => h - removido.duracao_min);
+    } finally { setDeletando(null); }
+  }
+
+  function horas(min: number) {
+    const h = Math.floor(min / 60);
+    const m = min % 60;
+    return h > 0 ? `${h}h${m > 0 ? `${m}min` : ""}` : `${m}min`;
+  }
+
+  const TIPO_ICON: Record<string, string> = {
+    presencial: "🤝", videoconferencia: "📹", telefone: "📞", email: "✉️",
+  };
+
+  if (loading) return <div className="flex justify-center py-12"><Spinner /></div>;
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-4">
+          <div>
+            <p className="text-xs text-muted">Total de horas</p>
+            <p className="text-2xl font-bold text-text-main">{horas(totalHoras)}</p>
+          </div>
+          <div className="h-10 w-px bg-border" />
+          <div>
+            <p className="text-xs text-muted">Atendimentos</p>
+            <p className="text-2xl font-bold text-text-main">{atendimentos.length}</p>
+          </div>
+        </div>
+        <Btn variant="gold" onClick={() => setModal({ form: { ...ATEND_FORM_VAZIO } })}>
+          + Registrar Atendimento
+        </Btn>
+      </div>
+
+      {/* Lista */}
+      {atendimentos.length === 0 ? (
+        <div className="text-center py-16 text-muted text-sm border border-dashed border-border rounded-xl">
+          <p className="text-2xl mb-2">📋</p>
+          <p className="font-semibold text-text-main mb-1">Nenhum atendimento registrado</p>
+          <p className="text-xs">Registre reuniões, calls e atendimentos presenciais</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {atendimentos.map(a => (
+            <div key={a.id}
+              className="bg-bg rounded-xl border border-border hover:border-gold/30 transition-colors">
+              {/* Cabeçalho clicável */}
+              <button
+                className="w-full text-left p-4"
+                onClick={() => setExpandido(expandido === a.id ? null : a.id)}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3 flex-1 min-w-0">
+                    <span className="text-xl mt-0.5 flex-shrink-0">{TIPO_ICON[a.tipo] ?? "📋"}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-text-main leading-tight">{a.assunto}</p>
+                      <div className="flex items-center gap-3 mt-1 flex-wrap">
+                        <span className="text-xs text-muted">
+                          {new Date(a.data_atendimento + "T00:00:00").toLocaleDateString("pt-BR", {
+                            weekday: "short", day: "2-digit", month: "short", year: "numeric"
+                          })}
+                        </span>
+                        <span className="text-xs bg-surface border border-border px-2 py-0.5 rounded-full text-muted">
+                          {horas(a.duracao_min)}
+                        </span>
+                        {a.participantes && (
+                          <span className="text-xs text-muted truncate">👥 {a.participantes}</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                    <Btn onClick={() => setModal({ form: {
+                      data_atendimento: a.data_atendimento,
+                      tipo: a.tipo,
+                      duracao_min: a.duracao_min,
+                      assunto: a.assunto,
+                      anotacoes: a.anotacoes ?? "",
+                      participantes: a.participantes ?? "",
+                    }, id: a.id })}>Editar</Btn>
+                    <Btn variant="danger"
+                      onClick={() => deletar(a.id)}
+                      disabled={deletando === a.id}>
+                      {deletando === a.id ? "…" : "Excluir"}
+                    </Btn>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"
+                      viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                      className={`text-muted transition-transform ${expandido === a.id ? "rotate-180" : ""}`}>
+                      <polyline points="6 9 12 15 18 9"/>
+                    </svg>
+                  </div>
+                </div>
+              </button>
+
+              {/* Detalhes expandidos */}
+              {expandido === a.id && (
+                <div className="px-4 pb-4 pt-0 border-t border-border space-y-3 mt-0">
+                  {a.anotacoes && (
+                    <div className="pt-3">
+                      <p className="text-xs font-semibold text-muted mb-1">Anotações</p>
+                      <p className="text-sm text-text-main whitespace-pre-wrap leading-relaxed bg-surface rounded-lg p-3 border border-border">
+                        {a.anotacoes}
+                      </p>
+                    </div>
+                  )}
+                  {a.documentos_vinculados?.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-muted mb-1">Documentos vinculados</p>
+                      <div className="flex flex-wrap gap-2">
+                        {a.documentos_vinculados.map((d, i) => (
+                          <span key={i}
+                            className="text-xs bg-surface border border-border rounded-full px-3 py-1 text-muted">
+                            📎 {d.nome}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <p className="text-xs text-muted">
+                    Registrado em {new Date(a.created_at).toLocaleDateString("pt-BR")}
+                  </p>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Modal criar/editar */}
+      {modal && (
+        <Modal
+          title={modal.id ? "Editar Atendimento" : "Registrar Atendimento"}
+          onClose={() => setModal(null)}>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-semibold text-muted mb-1">Assunto *</label>
+              <input
+                className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-bg text-text-main focus:outline-none focus:ring-2 focus:ring-gold/40"
+                placeholder="Ex: Reunião de estratégia para recurso"
+                value={modal.form.assunto}
+                onChange={e => setModal(m => m && ({ ...m, form: { ...m.form, assunto: e.target.value } }))}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-muted mb-1">Tipo</label>
+                <select
+                  className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-bg text-text-main focus:outline-none focus:ring-2 focus:ring-gold/40"
+                  value={modal.form.tipo}
+                  onChange={e => setModal(m => m && ({ ...m, form: { ...m.form, tipo: e.target.value } }))}>
+                  {TIPOS_ATENDIMENTO.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-muted mb-1">Data</label>
+                <input type="date"
+                  className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-bg text-text-main focus:outline-none focus:ring-2 focus:ring-gold/40"
+                  value={modal.form.data_atendimento}
+                  onChange={e => setModal(m => m && ({ ...m, form: { ...m.form, data_atendimento: e.target.value } }))}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-muted mb-1">Duração (minutos)</label>
+                <input type="number" min={5} step={5}
+                  className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-bg text-text-main focus:outline-none focus:ring-2 focus:ring-gold/40"
+                  value={modal.form.duracao_min}
+                  onChange={e => setModal(m => m && ({ ...m, form: { ...m.form, duracao_min: Number(e.target.value) } }))}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-muted mb-1">Participantes</label>
+                <input
+                  className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-bg text-text-main focus:outline-none focus:ring-2 focus:ring-gold/40"
+                  placeholder="João, Maria…"
+                  value={modal.form.participantes}
+                  onChange={e => setModal(m => m && ({ ...m, form: { ...m.form, participantes: e.target.value } }))}
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-muted mb-1">Anotações</label>
+              <textarea rows={4}
+                className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-bg text-text-main focus:outline-none focus:ring-2 focus:ring-gold/40 resize-none"
+                placeholder="O que foi discutido, decisões tomadas, próximos passos…"
+                value={modal.form.anotacoes}
+                onChange={e => setModal(m => m && ({ ...m, form: { ...m.form, anotacoes: e.target.value } }))}
+              />
+            </div>
+            <div className="flex gap-2 justify-end pt-2 border-t border-border">
+              <Btn onClick={() => setModal(null)}>Cancelar</Btn>
+              <button onClick={salvar} disabled={salvando || !modal.form.assunto.trim()}
+                className="bg-gold text-navy font-semibold rounded-lg px-4 py-2 text-sm hover:bg-gold-light transition-all disabled:opacity-50">
+                {salvando ? "Salvando…" : modal.id ? "Salvar alterações" : "Registrar"}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ── Timesheet por tarefa (componente auxiliar) ────────────────────────────
+
+function TimesheetTarefa({ processoId, tarefaId, tarefaTitulo }: {
+  processoId: string; tarefaId: string; tarefaTitulo: string;
+}) {
+  const [entries, setEntries]     = useState<TimesheetEntry[]>([]);
+  const [loading, setLoading]     = useState(true);
+  const [totalMin, setTotalMin]   = useState(0);
+  const [form, setForm]           = useState({ descricao: "", tipo: "trabalho", duracao_min: 60, data_lancamento: new Date().toISOString().slice(0,10) });
+  const [salvando, setSalvando]   = useState(false);
+  const [timer, setTimer]         = useState<{ rodando: boolean; inicio: number; elapsed: number }>({ rodando: false, inicio: 0, elapsed: 0 });
+  const intervalRef               = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    api.timesheet.listar(processoId, tarefaId)
+      .then(r => { setEntries(r.entries); setTotalMin(r.total_min); })
+      .finally(() => setLoading(false));
+  }, [processoId, tarefaId]);
+
+  // Timer
+  function iniciarTimer() {
+    setTimer({ rodando: true, inicio: Date.now(), elapsed: 0 });
+    intervalRef.current = setInterval(() => {
+      setTimer(t => ({ ...t, elapsed: Math.floor((Date.now() - t.inicio) / 1000) }));
+    }, 1000);
+  }
+
+  async function pararTimer() {
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    const minutos = Math.max(1, Math.round(timer.elapsed / 60));
+    setTimer({ rodando: false, inicio: 0, elapsed: 0 });
+    // Salva automaticamente
+    await lancar({ ...form, descricao: form.descricao || tarefaTitulo, duracao_min: minutos });
+  }
+
+  useEffect(() => () => { if (intervalRef.current) clearInterval(intervalRef.current); }, []);
+
+  async function lancar(body: typeof form) {
+    setSalvando(true);
+    try {
+      const e = await api.timesheet.lancar(processoId, { ...body, tarefa_id: tarefaId });
+      setEntries(prev => [e, ...prev]);
+      setTotalMin(t => t + body.duracao_min);
+      setForm(f => ({ ...f, descricao: "", duracao_min: 60 }));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Erro ao lançar horas");
+    } finally { setSalvando(false); }
+  }
+
+  async function deletarEntry(id: string, min: number) {
+    await api.timesheet.deletar(processoId, id);
+    setEntries(prev => prev.filter(e => e.id !== id));
+    setTotalMin(t => t - min);
+  }
+
+  function fmtTime(sec: number) {
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = sec % 60;
+    return `${h > 0 ? h + "h " : ""}${m}m ${s}s`;
+  }
+
+  function fmtMin(min: number) {
+    const h = Math.floor(min / 60); const m = min % 60;
+    return h > 0 ? `${h}h${m > 0 ? `${m}min` : ""}` : `${m}min`;
+  }
+
+  const TIPOS_TS = ["trabalho", "reuniao", "pesquisa", "audiencia", "deslocamento"];
+
+  return (
+    <div className="mt-3 border-t border-border pt-3 space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-muted uppercase tracking-wide">⏱ Timesheet</p>
+        {totalMin > 0 && (
+          <span className="text-xs font-bold text-gold bg-gold/10 px-2.5 py-1 rounded-full">
+            Total: {fmtMin(totalMin)}
+          </span>
+        )}
+      </div>
+
+      {/* Timer */}
+      <div className="bg-surface border border-border rounded-xl p-3">
+        {timer.rodando ? (
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
+              </span>
+              <span className="text-sm font-mono font-bold text-text-main">{fmtTime(timer.elapsed)}</span>
+              <span className="text-xs text-muted">gravando…</span>
+            </div>
+            <button onClick={pararTimer}
+              className="text-xs font-bold px-3 py-1.5 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 transition-colors">
+              ⏹ Parar e salvar
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <div className="grid grid-cols-3 gap-2">
+              <input
+                className="col-span-2 border border-border rounded-lg px-3 py-1.5 text-xs bg-bg text-text-main focus:outline-none focus:ring-1 focus:ring-gold/40"
+                placeholder="Descrição (ex: Elaboração da petição)"
+                value={form.descricao}
+                onChange={e => setForm(f => ({ ...f, descricao: e.target.value }))}
+              />
+              <select
+                className="border border-border rounded-lg px-2 py-1.5 text-xs bg-bg text-text-main focus:outline-none"
+                value={form.tipo}
+                onChange={e => setForm(f => ({ ...f, tipo: e.target.value }))}>
+                {TIPOS_TS.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div className="flex gap-2">
+              <input type="number" min={1} step={5}
+                className="w-24 border border-border rounded-lg px-3 py-1.5 text-xs bg-bg text-text-main focus:outline-none focus:ring-1 focus:ring-gold/40"
+                value={form.duracao_min}
+                onChange={e => setForm(f => ({ ...f, duracao_min: Number(e.target.value) }))}
+              />
+              <span className="text-xs text-muted self-center">min</span>
+              <input type="date"
+                className="flex-1 border border-border rounded-lg px-3 py-1.5 text-xs bg-bg text-text-main focus:outline-none"
+                value={form.data_lancamento}
+                onChange={e => setForm(f => ({ ...f, data_lancamento: e.target.value }))}
+              />
+              <button onClick={() => lancar(form)} disabled={salvando}
+                className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-gold text-navy hover:bg-gold-light transition-colors disabled:opacity-50">
+                {salvando ? "…" : "Lançar"}
+              </button>
+              <button onClick={iniciarTimer}
+                className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-border hover:border-gold/40 text-muted hover:text-text-main transition-colors">
+                ▶ Timer
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Histórico */}
+      {loading ? (
+        <div className="h-8 bg-bg rounded animate-pulse" />
+      ) : entries.length > 0 ? (
+        <div className="space-y-1 max-h-40 overflow-y-auto">
+          {entries.map(e => (
+            <div key={e.id}
+              className="flex items-center justify-between gap-2 px-3 py-1.5 bg-bg rounded-lg border border-border">
+              <span className="text-xs text-muted">{new Date(e.data_lancamento + "T00:00:00").toLocaleDateString("pt-BR")}</span>
+              <span className="text-xs text-text-main flex-1 truncate">{e.descricao}</span>
+              <span className="text-xs font-semibold text-gold">{fmtMin(e.duracao_min)}</span>
+              <button onClick={() => deletarEntry(e.id, e.duracao_min)}
+                className="text-xs text-muted hover:text-danger transition-colors">✕</button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-muted text-center py-2">Nenhum lançamento ainda</p>
+      )}
+    </div>
+  );
+}
 
 function AbaAtividade({ processoId }: { processoId: string }) {
   const [loading, setLoading] = useState(true);
@@ -3389,6 +4543,10 @@ export default function ProcessoPage() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("documentos");
   const [modalEditar, setModalEditar] = useState(false);
+  const [sincronizando, setSincronizando] = useState(false);
+  const [syncResult, setSyncResult] = useState<SyncDataJudResult | null>(null);
+  const [syncErro, setSyncErro] = useState<string | null>(null);
+  const [gerandoRelatorio, setGerandoRelatorio] = useState(false);
 
   const carregar = useCallback(async () => {
     try {
@@ -3402,6 +4560,35 @@ export default function ProcessoPage() {
   }, [id, router]);
 
   useEffect(() => { carregar(); }, [carregar]);
+
+  async function handleGerarRelatorio() {
+    setGerandoRelatorio(true);
+    try {
+      await api.relatorio.abrir(id);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Erro ao gerar relatório");
+    } finally {
+      setGerandoRelatorio(false);
+    }
+  }
+
+  async function handleSyncDataJud() {
+    setSincronizando(true);
+    setSyncResult(null);
+    setSyncErro(null);
+    try {
+      const r = await api.monitoramento.sync(id);
+      setSyncResult(r);
+      if (r.novos > 0) {
+        // Recarrega cronologia se houve novos eventos
+        await carregar();
+      }
+    } catch (e) {
+      setSyncErro(e instanceof Error ? e.message : "Erro ao sincronizar com DataJud");
+    } finally {
+      setSincronizando(false);
+    }
+  }
 
   if (loading) return (
     <div className="flex min-h-screen bg-bg">
@@ -3446,9 +4633,8 @@ export default function ProcessoPage() {
                 {processo.assunto  && <><span className="text-border">·</span><span className="truncate max-w-xs">{processo.assunto}</span></>}
               </div>
 
-              {/* Status + Responsável + Tags */}
+              {/* Status + Cliente + Responsável + Tags */}
               <div className="flex flex-wrap items-center gap-2 mt-1">
-                {/* Status badge */}
                 {{
                   ativo:     "bg-green-100 text-green-700",
                   arquivado: "bg-gray-100 text-gray-500",
@@ -3462,6 +4648,15 @@ export default function ProcessoPage() {
                     {processo.status}
                   </span>
                 )}
+                {processo.cliente_nome && processo.cliente_id && (
+                  <a
+                    href={`/clientes/${processo.cliente_id}`}
+                    onClick={e => e.stopPropagation()}
+                    className="text-xs font-semibold bg-blue-50 text-blue-700 px-2.5 py-0.5 rounded-full hover:bg-blue-100 transition-colors flex items-center gap-1">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                    {processo.cliente_nome}
+                  </a>
+                )}
                 {processo.responsavel && (
                   <span className="text-xs text-muted flex items-center gap-1">
                     <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -3474,18 +4669,100 @@ export default function ProcessoPage() {
               </div>
             </div>
 
-            {/* Botão editar */}
-            <button
-              onClick={() => setModalEditar(true)}
-              className="flex items-center gap-1.5 text-xs font-semibold text-muted hover:text-text-main px-3 py-2 rounded-lg border border-border hover:border-gold/40 hover:bg-bg transition-all flex-shrink-0"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-              </svg>
-              Editar processo
-            </button>
+            {/* Ações do cabeçalho */}
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {/* Botão Gerar Relatório */}
+              <button
+                onClick={handleGerarRelatorio}
+                disabled={gerandoRelatorio}
+                title="Gerar relatório profissional para o cliente (PDF)"
+                className="flex items-center gap-1.5 text-xs font-semibold text-gold hover:text-gold-light px-3 py-2 rounded-lg border border-gold/40 hover:border-gold hover:bg-gold/5 transition-all disabled:opacity-50"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                  <polyline points="14 2 14 8 20 8"/>
+                  <line x1="16" y1="13" x2="8" y2="13"/>
+                  <line x1="16" y1="17" x2="8" y2="17"/>
+                  <polyline points="10 9 9 9 8 9"/>
+                </svg>
+                {gerandoRelatorio ? "Gerando…" : "Relatório PDF"}
+              </button>
+
+              {/* Botão Sincronizar DataJud */}
+              <button
+                onClick={handleSyncDataJud}
+                disabled={sincronizando}
+                title="Sincronizar movimentações com o DataJud (CNJ)"
+                className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-700 px-3 py-2 rounded-lg border border-blue-200 hover:border-blue-400 hover:bg-blue-50 transition-all disabled:opacity-50"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                  className={sincronizando ? "animate-spin" : ""}>
+                  <polyline points="23 4 23 10 17 10"/>
+                  <polyline points="1 20 1 14 7 14"/>
+                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                </svg>
+                {sincronizando ? "Sincronizando…" : "Sync DataJud"}
+              </button>
+
+              {/* Botão editar */}
+              <button
+                onClick={() => setModalEditar(true)}
+                className="flex items-center gap-1.5 text-xs font-semibold text-muted hover:text-text-main px-3 py-2 rounded-lg border border-border hover:border-gold/40 hover:bg-bg transition-all"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+                Editar processo
+              </button>
+            </div>
           </div>
+
+          {/* Banner resultado sync DataJud */}
+          {syncResult && (
+            <div className={`rounded-xl border px-4 py-3 mb-3 flex items-start gap-3 ${
+              syncResult.status === "nao_encontrado"
+                ? "bg-yellow-50 border-yellow-200"
+                : syncResult.novos > 0
+                ? "bg-green-50 border-green-200"
+                : "bg-blue-50 border-blue-200"
+            }`}>
+              <span className="text-lg flex-shrink-0 mt-0.5">
+                {syncResult.status === "nao_encontrado" ? "⚠️" : syncResult.novos > 0 ? "🎉" : "✅"}
+              </span>
+              <div className="flex-1 min-w-0">
+                {syncResult.status === "nao_encontrado" ? (
+                  <p className="text-sm font-semibold text-yellow-700">
+                    Processo não encontrado no DataJud
+                  </p>
+                ) : (
+                  <>
+                    <p className="text-sm font-semibold text-green-800">
+                      {syncResult.novos > 0
+                        ? `${syncResult.novos} nova${syncResult.novos > 1 ? "s movimentações adicionadas" : " movimentação adicionada"} à cronologia`
+                        : "Cronologia já está atualizada"}
+                    </p>
+                    <p className="text-xs text-muted mt-0.5">
+                      {syncResult.total_datajud} movimento{syncResult.total_datajud !== 1 ? "s" : ""} no CNJ
+                      {syncResult.classe ? ` · ${syncResult.classe}` : ""}
+                      {syncResult.tribunal ? ` · ${syncResult.tribunal}` : ""}
+                    </p>
+                  </>
+                )}
+                {syncResult.msg && (
+                  <p className="text-xs text-yellow-600 mt-0.5">{syncResult.msg}</p>
+                )}
+              </div>
+              <button onClick={() => setSyncResult(null)} className="text-muted hover:text-text-main text-xs">✕</button>
+            </div>
+          )}
+          {syncErro && (
+            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 mb-3 flex items-center gap-3">
+              <span className="text-lg">❌</span>
+              <p className="text-sm text-red-700 flex-1">{syncErro}</p>
+              <button onClick={() => setSyncErro(null)} className="text-muted hover:text-text-main text-xs">✕</button>
+            </div>
+          )}
 
           {/* Métricas clicáveis */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
@@ -3525,6 +4802,7 @@ export default function ProcessoPage() {
           {tab === "prazos"     && <AbaPrazos     processoId={id} />}
           {tab === "analises"   && <AbaAnalises   processoId={id} processo={processo} onRefreshProcesso={carregar} />}
           {tab === "revisao"    && <AbaRevisao    processoId={id} onRefreshProcesso={carregar} />}
+          {tab === "atendimentos" && <AbaAtendimentos processoId={id} />}
           {tab === "minutas"    && <AbaMinutas    processoId={id} />}
           {tab === "snapshots"  && <AbaSnapshots  processoId={id} />}
           {tab === "chat"       && <AbaChat       processoId={id} />}

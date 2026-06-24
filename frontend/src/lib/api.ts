@@ -30,6 +30,8 @@ export interface Processo {
   status: string;
   tags: string[];
   responsavel?: string;
+  cliente_id?: string;
+  cliente_nome?: string;
   total_documentos: number;
   total_pecas: number;
   total_chunks: number;
@@ -37,6 +39,22 @@ export interface Processo {
   analises_pendentes: number;
   ultimo_upload?: string;
   ultimo_snapshot?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Cliente {
+  id: string;
+  nome: string;
+  tipo: "pf" | "pj";
+  cpf_cnpj?: string;
+  email?: string;
+  telefone?: string;
+  endereco?: string;
+  observacoes?: string;
+  total_processos: number;
+  processos_ativos: number;
+  ultima_movimentacao?: string;
   created_at: string;
   updated_at: string;
 }
@@ -161,6 +179,111 @@ export interface DashboardAdmin {
   total_documentos: number;
   tarefas_pendentes: number;
   analises_pendentes_revisao: number;
+}
+
+export interface DashboardAlerta {
+  id: string;
+  titulo: string;
+  descricao?: string;
+  vencimento: string;
+  prioridade: string;
+  responsavel?: string;
+  tipo?: string;
+  processo_id: string;
+  numero_cnj?: string;
+  assunto?: string;
+  tribunal?: string;
+  vara?: string;
+  dias_corridos: number;
+  dias_uteis: number;
+}
+
+export interface DashboardAlertas {
+  hoje: string;
+  total: number;
+  criticos:  { count: number; items: DashboardAlerta[] };
+  urgentes:  { count: number; items: DashboardAlerta[] };
+  atencao:   { count: number; items: DashboardAlerta[] };
+  monitorar: { count: number; items: DashboardAlerta[] };
+}
+
+export interface CalcVencimento {
+  data_base: string;
+  prazo_dias: number;
+  tipo: string;
+  uf?: string;
+  vencimento: string;
+  dias_corridos_restantes: number;
+  dias_uteis_restantes: number;
+  status: "vencido" | "hoje" | "em_aberto";
+}
+
+export interface Atendimento {
+  id: string;
+  processo_id: string;
+  data_atendimento: string;
+  tipo: string;
+  duracao_min: number;
+  assunto: string;
+  anotacoes?: string;
+  participantes?: string;
+  documentos_vinculados: { nome: string; url?: string }[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TimesheetEntry {
+  id: string;
+  processo_id: string;
+  tarefa_id?: string;
+  descricao: string;
+  tipo: string;
+  duracao_min: number;
+  data_lancamento: string;
+  created_at: string;
+}
+
+export interface TimesheetResult {
+  entries: TimesheetEntry[];
+  total_min: number;
+  total_horas: number;
+}
+
+export interface EventoAgenda {
+  id: string;
+  tipo: "prazo" | "atendimento" | "tarefa";
+  titulo: string;
+  descricao?: string;
+  data: string;
+  status: string;
+  prioridade: string;
+  processo_id?: string;
+  numero_cnj?: string;
+  assunto?: string;
+  tribunal?: string;
+  cor: "red" | "orange" | "yellow" | "green" | "blue" | "purple" | "gray";
+  extra?: { tipo_atend?: string; duracao_min?: number } | null;
+}
+
+export interface AgendaResult {
+  eventos: EventoAgenda[];
+  resumo: {
+    total_prazos: number;
+    prazos_criticos: number;
+    total_atendimentos: number;
+    total_tarefas: number;
+  };
+}
+
+export interface SyncDataJudResult {
+  novos: number;
+  total_datajud: number;
+  tribunal: string;
+  classe?: string;
+  sistema?: string;
+  status: "ok" | "nao_encontrado";
+  msg?: string;
+  ultimo_sync?: string;
 }
 
 // ── Preços Claude API (USD por 1K tokens) ────────────────────────────────
@@ -315,13 +438,19 @@ export const api = {
     chat: (
       processoId: string,
       mensagens: { role: string; content: string }[],
-      tipo_peca?: string
+      tipo_peca?: string,
+      usar_sonnet?: boolean,
     ) =>
       req<{ resposta: string; fontes: unknown[]; tokens: number }>(
         `/processos/${processoId}/analises/chat`,
         {
           method: "POST",
-          body: JSON.stringify({ processo_id: processoId, mensagens, tipo_peca }),
+          body: JSON.stringify({
+            processo_id: processoId,
+            mensagens,
+            tipo_peca,
+            usar_sonnet: usar_sonnet ?? false,
+          }),
         }
       ),
   },
@@ -339,6 +468,16 @@ export const api = {
       req<Prazo>(`/processos/${processoId}/prazos/${prazoId}/reabrir`, { method: "PATCH" }),
     deletar: (processoId: string, prazoId: string) =>
       req<void>(`/processos/${processoId}/prazos/${prazoId}`, { method: "DELETE" }),
+    calcularVencimento: (body: {
+      data_base: string;
+      prazo_dias: number;
+      tipo?: string;
+      uf?: string;
+    }) =>
+      req<CalcVencimento>("/prazos/calcular-vencimento", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
   },
 
   revisao: {
@@ -385,12 +524,89 @@ export const api = {
       ),
   },
 
+  monitoramento: {
+    sync: (processoId: string) =>
+      req<SyncDataJudResult>(`/processos/${processoId}/sync-datajud`, { method: "POST" }),
+    syncTodos: () =>
+      req<{ total: number; ok: number; erros: number; nao_encontrados: number; novos_eventos: number }>(
+        "/admin/sync-datajud-todos",
+        { method: "POST" }
+      ),
+  },
+
+  atendimentos: {
+    listar: (processoId: string) =>
+      req<Atendimento[]>(`/processos/${processoId}/atendimentos`),
+    criar: (processoId: string, body: Partial<Atendimento>) =>
+      req<Atendimento>(`/processos/${processoId}/atendimentos`, {
+        method: "POST", body: JSON.stringify(body),
+      }),
+    atualizar: (processoId: string, id: string, body: Partial<Atendimento>) =>
+      req<Atendimento>(`/processos/${processoId}/atendimentos/${id}`, {
+        method: "PATCH", body: JSON.stringify(body),
+      }),
+    deletar: (processoId: string, id: string) =>
+      req<void>(`/processos/${processoId}/atendimentos/${id}`, { method: "DELETE" }),
+  },
+
+  timesheet: {
+    listar: (processoId: string, tarefaId?: string) =>
+      req<TimesheetResult>(`/processos/${processoId}/timesheet${tarefaId ? `?tarefa_id=${tarefaId}` : ""}`),
+    lancar: (processoId: string, body: {
+      descricao: string; tipo: string; duracao_min: number;
+      data_lancamento: string; tarefa_id?: string;
+    }) =>
+      req<TimesheetEntry>(`/processos/${processoId}/timesheet`, {
+        method: "POST", body: JSON.stringify(body),
+      }),
+    deletar: (processoId: string, entryId: string) =>
+      req<void>(`/processos/${processoId}/timesheet/${entryId}`, { method: "DELETE" }),
+  },
+
+  relatorio: {
+    /** Busca o HTML do relatório com auth e abre em nova aba como blob. */
+    abrir: async (processoId: string): Promise<void> => {
+      const res = await fetch(`${BASE}/processos/${processoId}/relatorio`, {
+        headers: { ...getAuthHeader() },
+      });
+      if (!res.ok) throw new Error("Erro ao gerar relatório");
+      const html = await res.text();
+      const blob = new Blob([html], { type: "text/html" });
+      const url  = URL.createObjectURL(blob);
+      const win  = window.open(url, "_blank");
+      // Libera a URL do blob depois que a janela carregou
+      if (win) win.addEventListener("load", () => URL.revokeObjectURL(url), { once: true });
+    },
+  },
+
   admin: {
     dashboard: () => req<DashboardAdmin>("/admin/dashboard"),
+    alertas: (uf?: string) =>
+      req<DashboardAlertas>(`/admin/alertas${uf ? `?uf=${uf}` : ""}`),
     audit: (entidade?: string, limit?: number) =>
       req<unknown[]>(
         `/admin/audit?${entidade ? `entidade=${entidade}&` : ""}limit=${limit ?? 50}`
       ),
+  },
+
+  agenda: {
+    listar: (inicio: string, fim: string) =>
+      req<AgendaResult>(`/agenda?inicio=${inicio}&fim=${fim}`),
+  },
+
+  clientes: {
+    listar: () => req<Cliente[]>("/clientes"),
+    criar: (body: Partial<Cliente>) =>
+      req<Cliente>("/clientes", { method: "POST", body: JSON.stringify(body) }),
+    obter: (id: string) => req<Cliente>(`/clientes/${id}`),
+    atualizar: (id: string, body: Partial<Cliente>) =>
+      req<Cliente>(`/clientes/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+    deletar: (id: string) => req<void>(`/clientes/${id}`, { method: "DELETE" }),
+    processos: (id: string) => req<Processo[]>(`/clientes/${id}/processos`),
+    vincularProcesso: (clienteId: string, processoId: string) =>
+      req<{ ok: boolean }>(`/clientes/${clienteId}/vincular-processo/${processoId}`, { method: "PATCH" }),
+    desvincularProcesso: (clienteId: string, processoId: string) =>
+      req<{ ok: boolean }>(`/clientes/${clienteId}/vincular-processo/${processoId}`, { method: "DELETE" }),
   },
 
   auth: {
