@@ -138,6 +138,14 @@ interface ExtraiPartes {
   polo_passivo: ParteExtraida[];
   advogados: { nome: string; oab?: string | null }[];
   peca_usada: { id: string; tipo: string; pagina: number };
+  processo_atualizado?: string[];
+  processo?: {
+    numero_cnj?: string | null;
+    tribunal?: string | null;
+    vara?: string | null;
+    cidade?: string | null;
+    assunto?: string | null;
+  };
 }
 
 // ── Modal de partes extraídas ─────────────────────────────────────────────
@@ -224,7 +232,7 @@ function ModalPartesExtraidas({ dados, processoId, onClose, onClienteCriado }: {
       <div className="bg-[#0f1923] border border-white/10 rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-hidden flex flex-col">
         <div className="px-5 py-4 border-b border-white/10 flex items-center justify-between flex-shrink-0">
           <div>
-            <p className="text-white font-bold">Partes extraídas da petição inicial</p>
+            <p className="text-white font-bold">Dados extraídos automaticamente</p>
             <p className="text-white/40 text-xs mt-0.5">
               Peça: {dados.peca_usada.tipo ?? "documento"} · pág. {dados.peca_usada.pagina}
             </p>
@@ -237,6 +245,26 @@ function ModalPartesExtraidas({ dados, processoId, onClose, onClienteCriado }: {
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          {/* Metadados do processo preenchidos automaticamente */}
+          {dados.processo_atualizado && dados.processo_atualizado.length > 0 && (
+            <div className="rounded-xl border border-emerald-500/30 bg-emerald-900/20 px-4 py-3">
+              <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest mb-2">✓ Processo atualizado automaticamente</p>
+              <div className="flex flex-wrap gap-2">
+                {dados.processo_atualizado.map(campo => {
+                  const labels: Record<string, string> = {
+                    numero_cnj: "Nº CNJ", tribunal: "Tribunal", vara: "Vara", cidade: "Cidade", assunto: "Assunto"
+                  };
+                  const valor = dados.processo?.[campo as keyof typeof dados.processo];
+                  return (
+                    <div key={campo} className="text-xs bg-emerald-900/40 border border-emerald-500/20 rounded-lg px-2.5 py-1.5">
+                      <span className="text-emerald-400/70 font-semibold">{labels[campo] ?? campo}: </span>
+                      <span className="text-emerald-200">{valor}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           {dados.polo_ativo.length > 0 && (
             <div>
               <p className="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-2">Polo Ativo (Autor)</p>
@@ -4856,6 +4884,10 @@ export default function ProcessoPage() {
       }
       const dados: ExtraiPartes = await res.json();
       setPartesExtraidas(dados);
+      // Recarrega o processo para refletir tribunal/vara/cidade/CNJ preenchidos
+      if (dados.processo_atualizado && dados.processo_atualizado.length > 0) {
+        await carregar();
+      }
     } catch (e) {
       alert(e instanceof Error ? e.message : "Erro ao extrair partes");
     } finally {
@@ -5051,6 +5083,25 @@ export default function ProcessoPage() {
                   </button>
                 </div>
               </div>
+
+              {/* Banner: processo com peças mas sem metadados — sugerir extração automática */}
+              {!extraindoPartes && !partesExtraidas && processo &&
+               processo.total_pecas > 0 &&
+               !processo.tribunal && !processo.vara && !processo.cidade && (
+                <div className="mb-2 rounded-xl border border-gold/30 bg-gold/5 px-4 py-3 flex items-center gap-3">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gold flex-shrink-0">
+                    <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                  </svg>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-bold text-gold">Dados do processo não preenchidos</p>
+                    <p className="text-[10px] text-white/50 mt-0.5">Tribunal, vara, cidade e partes podem ser extraídos automaticamente do documento.</p>
+                  </div>
+                  <button onClick={handleExtrairPartes}
+                    className="flex-shrink-0 bg-gold text-navy text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-gold/80 transition-all whitespace-nowrap">
+                    Extrair Agora
+                  </button>
+                </div>
+              )}
 
               {/* Banner: partes identificadas pelo DataJud — cadastrar cliente */}
               {partesDatajud && partesDatajud.length > 0 && (

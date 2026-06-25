@@ -314,63 +314,85 @@ async def comparar(processo_id: uuid.UUID, snap_a: uuid.UUID, snap_b: uuid.UUID)
     return await snapshot_svc.comparar_snapshots(snap_a, snap_b)
 
 
-# ── Extração de partes da petição inicial ─────────────────────────────────────
+# ── Extração automática completa da petição inicial ──────────────────────────
 
-_PROMPT_EXTRAIR_PARTES = """
-Você é um assistente jurídico especializado em processos brasileiros.
-Analise o texto abaixo (trecho de petição inicial ou documento processual) e extraia os dados das partes processuais.
+_PROMPT_EXTRAIR_COMPLETO = """
+Você é um assistente jurídico especializado em processos judiciais brasileiros.
+Analise o texto abaixo (petição inicial ou documento processual) e extraia TODOS os dados relevantes.
 
-Retorne APENAS um JSON válido com esta estrutura exata:
+Retorne APENAS um JSON válido com esta estrutura exata (sem texto antes ou depois):
 {
+  "processo": {
+    "numero_cnj": "0000000-00.0000.0.00.0000 (ou null)",
+    "tribunal": "TJGO, TJSP, TRF1, TST... (sigla oficial, ou null)",
+    "vara": "nome completo da vara ou câmara (ou null)",
+    "cidade": "cidade onde tramita o processo (ou null)",
+    "assunto": "resumo do pedido principal em até 15 palavras (ou null)"
+  },
   "polo_ativo": [
     {
       "nome": "Nome completo",
-      "tipo": "pf" ou "pj",
-      "cpf_cnpj": "000.000.000-00 ou 00.000.000/0001-00 (ou null se não encontrado)",
+      "tipo": "pf",
+      "cpf_cnpj": "000.000.000-00 (ou null)",
       "endereco": "endereço completo (ou null)",
       "email": "email (ou null)",
       "telefone": "telefone (ou null)",
-      "qualificacao": "qualificação completa como aparece no texto (ou null)"
+      "qualificacao": "qualificação como aparece no texto (ou null)"
     }
   ],
   "polo_passivo": [
     {
       "nome": "Nome completo",
-      "tipo": "pf" ou "pj",
+      "tipo": "pf",
       "cpf_cnpj": "000.000.000-00 (ou null)",
       "endereco": "endereço completo (ou null)",
       "email": "email (ou null)",
       "telefone": "telefone (ou null)",
-      "qualificacao": "qualificação completa (ou null)"
+      "qualificacao": "qualificação como aparece no texto (ou null)"
     }
   ],
   "advogados": [
     {
-      "nome": "Nome do advogado",
+      "nome": "Nome completo",
       "oab": "OAB/UF 000000 (ou null)"
     }
   ]
 }
 
-Regras:
-- Polo ativo = autor(es), requerente(s), exequente(s), apelante(s)
-- Polo passivo = réu(s), requerido(s), executado(s), apelado(s)
-- Se não encontrar uma informação, use null (não invente)
-- Se houver múltiplas partes em cada polo, inclua todas no array
-- Retorne SOMENTE o JSON, sem explicações
+Regras obrigatórias:
+- "tipo": use "pf" para pessoa física, "pj" para pessoa jurídica
+- Polo ativo = autor, requerente, exequente, reclamante, impetrante
+- Polo passivo = réu, requerido, executado, reclamado, impetrado
+- Se uma informação não aparecer no texto, use null — NUNCA invente
+- Se houver múltiplas partes em um polo, inclua todas
+- Número CNJ: formato exato 7-2.4.1.2.4 (ex: 5001234-56.2024.8.09.0051)
+- Tribunal: derive do número CNJ se necessário (segmento: 8=TJ, 4=TRF, 5=TRT...)
+- Retorne SOMENTE o JSON, nada mais
 
 TEXTO DO DOCUMENTO:
 """
 
+
 @router.post("/{processo_id}/extrair-partes")
 async def extrair_partes_peticao(processo_id: uuid.UUID):
     """
-    Usa IA para extrair dados estruturados das partes a partir da petição inicial
-    ou do documento mais informativo disponível no processo.
+    Extrai automaticamente via IA todos os dados da petição inicial:
+    número CNJ, tribunal, vara, cidade, assunto + partes e advogados.
+    Atualiza o processo com os metadados encontrados e retorna tudo.
     """
     sb = get_supabase()
 
-    # Busca pecas priorizando petição inicial, depois outros tipos iniciais
+    # Busca o processo atual para saber quais campos já estão preenchidos
+    proc_res = await sb_run(
+        lambda: sb.table("processos")
+        .select("numero_cnj,tribunal,vara,assunto,cidade")
+        .eq("id", str(processo_id))
+        .limit(1)
+        .execute()
+    )
+    proc_atual = proc_res.data[0] if proc_res.data else {}
+
+    # Busca peças priorizando petição inicial
     pecas_res = await sb_run(
         lambda: sb.table("pecas")
         .select("id,tipo_peca,conteudo_texto,pagina_inicio")
@@ -382,9 +404,11 @@ async def extrair_partes_peticao(processo_id: uuid.UUID):
     pecas = pecas_res.data or []
 
     if not pecas:
-        raise HTTPException(404, "Nenhuma peça com texto encontrada neste processo. Faça o upload e aguarde o processamento.")
+        raise HTTPException(
+            404,
+            "Nenhuma peça com texto encontrada. Faça o upload do PDF e aguarde o processamento concluir."
+        )
 
-    # Prioridade: petição inicial → outros tipos → primeira peça disponível
     TIPOS_PRIORITARIOS = [
         "peticao_inicial", "petição inicial", "peticao inicial",
         "inicial", "exordial", "reclamacao_trabalhista",
@@ -399,42 +423,57 @@ async def extrair_partes_peticao(processo_id: uuid.UUID):
         if peca_alvo:
             break
 
-    # Se não encontrou petição inicial, pega as primeiras peças (cabeçalho tende a ter qualificação)
     if not peca_alvo:
         peca_alvo = pecas[0]
 
-    # Limita texto a ~8000 chars para não desperdiçar tokens
-    texto = (peca_alvo.get("conteudo_texto") or "")[:8000]
+    # Usa as primeiras 10 000 chars — suficiente para cabeçalho + qualificação das partes
+    texto = (peca_alvo.get("conteudo_texto") or "")[:10_000]
 
     if len(texto.strip()) < 100:
-        raise HTTPException(422, "Texto da peça muito curto para extração. Verifique se o documento foi processado corretamente.")
+        raise HTTPException(
+            422,
+            "Texto da peça muito curto. Verifique se o documento foi processado corretamente (OCR pode ter falhado)."
+        )
 
-    # Chama Claude Haiku (rápido e barato para extração estruturada)
     settings_obj = get_settings()
     client = anthropic.Anthropic(api_key=settings_obj.anthropic_api_key)
 
     try:
         msg = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=1024,
-            messages=[{
-                "role": "user",
-                "content": _PROMPT_EXTRAIR_PARTES + texto,
-            }],
+            max_tokens=2048,
+            messages=[{"role": "user", "content": _PROMPT_EXTRAIR_COMPLETO + texto}],
         )
         raw = msg.content[0].text.strip()
-
-        # Remove possíveis blocos de código markdown
         if raw.startswith("```"):
             raw = raw.split("```")[1]
             if raw.startswith("json"):
                 raw = raw[4:]
-
         dados = json.loads(raw)
     except json.JSONDecodeError:
         raise HTTPException(500, "Erro ao interpretar resposta da IA. Tente novamente.")
     except anthropic.APIError as e:
         raise HTTPException(502, f"Erro na API de IA: {e}")
+
+    # ── Auto-atualiza o processo com os campos extraídos ─────────────────────
+    proc_meta = dados.get("processo") or {}
+    campos_atualizar = {}
+    campos_preenchidos = []
+
+    for campo in ("numero_cnj", "tribunal", "vara", "cidade", "assunto"):
+        valor_extraido = proc_meta.get(campo)
+        # Só preenche se veio algo e o campo estava vazio
+        if valor_extraido and not proc_atual.get(campo):
+            campos_atualizar[campo] = valor_extraido
+            campos_preenchidos.append(campo)
+
+    if campos_atualizar:
+        await sb_run(
+            lambda: sb.table("processos")
+            .update(campos_atualizar)
+            .eq("id", str(processo_id))
+            .execute()
+        )
 
     return {
         "peca_usada": {
@@ -442,5 +481,9 @@ async def extrair_partes_peticao(processo_id: uuid.UUID):
             "tipo": peca_alvo.get("tipo_peca"),
             "pagina": peca_alvo.get("pagina_inicio"),
         },
-        **dados,
+        "processo_atualizado": campos_preenchidos,
+        "processo": proc_meta,
+        "polo_ativo":  dados.get("polo_ativo", []),
+        "polo_passivo": dados.get("polo_passivo", []),
+        "advogados":   dados.get("advogados", []),
     }
