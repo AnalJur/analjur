@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { api, type Cliente } from "@/lib/api";
 import Sidebar from "@/components/Sidebar";
@@ -228,7 +228,7 @@ function FormCliente({ inicial, onSalvar, onCancelar }: {
 
 // ── Página principal ──────────────────────────────────────────────────────
 
-export default function ClientesPage() {
+function ClientesInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [clientes, setClientes]     = useState<Cliente[]>([]);
@@ -464,3 +464,10 @@ export default function ClientesPage() {
   );
 }
 
+export default function ClientesPage() {
+  return (
+    <Suspense>
+      <ClientesInner />
+    </Suspense>
+  );
+}
