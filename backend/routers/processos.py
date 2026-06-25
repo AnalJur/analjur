@@ -1,7 +1,10 @@
 import uuid
+import json
 from typing import Optional
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query
+
+import anthropic
 
 from ..database import get_supabase, sb_run
 from ..schemas import (
@@ -309,3 +312,135 @@ async def obter_snapshot(processo_id: uuid.UUID, snap_id: uuid.UUID):
 @router.get("/{processo_id}/snapshots/comparar/{snap_a}/{snap_b}")
 async def comparar(processo_id: uuid.UUID, snap_a: uuid.UUID, snap_b: uuid.UUID):
     return await snapshot_svc.comparar_snapshots(snap_a, snap_b)
+
+
+# ── Extração de partes da petição inicial ─────────────────────────────────────
+
+_PROMPT_EXTRAIR_PARTES = """
+Você é um assistente jurídico especializado em processos brasileiros.
+Analise o texto abaixo (trecho de petição inicial ou documento processual) e extraia os dados das partes processuais.
+
+Retorne APENAS um JSON válido com esta estrutura exata:
+{
+  "polo_ativo": [
+    {
+      "nome": "Nome completo",
+      "tipo": "pf" ou "pj",
+      "cpf_cnpj": "000.000.000-00 ou 00.000.000/0001-00 (ou null se não encontrado)",
+      "endereco": "endereço completo (ou null)",
+      "email": "email (ou null)",
+      "telefone": "telefone (ou null)",
+      "qualificacao": "qualificação completa como aparece no texto (ou null)"
+    }
+  ],
+  "polo_passivo": [
+    {
+      "nome": "Nome completo",
+      "tipo": "pf" ou "pj",
+      "cpf_cnpj": "000.000.000-00 (ou null)",
+      "endereco": "endereço completo (ou null)",
+      "email": "email (ou null)",
+      "telefone": "telefone (ou null)",
+      "qualificacao": "qualificação completa (ou null)"
+    }
+  ],
+  "advogados": [
+    {
+      "nome": "Nome do advogado",
+      "oab": "OAB/UF 000000 (ou null)"
+    }
+  ]
+}
+
+Regras:
+- Polo ativo = autor(es), requerente(s), exequente(s), apelante(s)
+- Polo passivo = réu(s), requerido(s), executado(s), apelado(s)
+- Se não encontrar uma informação, use null (não invente)
+- Se houver múltiplas partes em cada polo, inclua todas no array
+- Retorne SOMENTE o JSON, sem explicações
+
+TEXTO DO DOCUMENTO:
+"""
+
+@router.post("/{processo_id}/extrair-partes")
+async def extrair_partes_peticao(processo_id: uuid.UUID):
+    """
+    Usa IA para extrair dados estruturados das partes a partir da petição inicial
+    ou do documento mais informativo disponível no processo.
+    """
+    sb = get_supabase()
+
+    # Busca pecas priorizando petição inicial, depois outros tipos iniciais
+    pecas_res = await sb_run(
+        lambda: sb.table("pecas")
+        .select("id,tipo_peca,conteudo_texto,pagina_inicio")
+        .eq("processo_id", str(processo_id))
+        .not_.is_("conteudo_texto", "null")
+        .order("pagina_inicio")
+        .execute()
+    )
+    pecas = pecas_res.data or []
+
+    if not pecas:
+        raise HTTPException(404, "Nenhuma peça com texto encontrada neste processo. Faça o upload e aguarde o processamento.")
+
+    # Prioridade: petição inicial → outros tipos → primeira peça disponível
+    TIPOS_PRIORITARIOS = [
+        "peticao_inicial", "petição inicial", "peticao inicial",
+        "inicial", "exordial", "reclamacao_trabalhista",
+        "mandado_seguranca", "acao", "requerimento",
+    ]
+    peca_alvo = None
+    for t in TIPOS_PRIORITARIOS:
+        for p in pecas:
+            if t.lower() in (p.get("tipo_peca") or "").lower():
+                peca_alvo = p
+                break
+        if peca_alvo:
+            break
+
+    # Se não encontrou petição inicial, pega as primeiras peças (cabeçalho tende a ter qualificação)
+    if not peca_alvo:
+        peca_alvo = pecas[0]
+
+    # Limita texto a ~8000 chars para não desperdiçar tokens
+    texto = (peca_alvo.get("conteudo_texto") or "")[:8000]
+
+    if len(texto.strip()) < 100:
+        raise HTTPException(422, "Texto da peça muito curto para extração. Verifique se o documento foi processado corretamente.")
+
+    # Chama Claude Haiku (rápido e barato para extração estruturada)
+    settings_obj = get_settings()
+    client = anthropic.Anthropic(api_key=settings_obj.anthropic_api_key)
+
+    try:
+        msg = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1024,
+            messages=[{
+                "role": "user",
+                "content": _PROMPT_EXTRAIR_PARTES + texto,
+            }],
+        )
+        raw = msg.content[0].text.strip()
+
+        # Remove possíveis blocos de código markdown
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+
+        dados = json.loads(raw)
+    except json.JSONDecodeError:
+        raise HTTPException(500, "Erro ao interpretar resposta da IA. Tente novamente.")
+    except anthropic.APIError as e:
+        raise HTTPException(502, f"Erro na API de IA: {e}")
+
+    return {
+        "peca_usada": {
+            "id": str(peca_alvo["id"]),
+            "tipo": peca_alvo.get("tipo_peca"),
+            "pagina": peca_alvo.get("pagina_inicio"),
+        },
+        **dados,
+    }

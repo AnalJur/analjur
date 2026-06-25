@@ -121,6 +121,169 @@ function formatBytes(b?: number) {
   return ` · ${(b / 1024 / 1024).toFixed(1)} MB`;
 }
 
+// ── Tipos locais ─────────────────────────────────────────────────────────
+
+interface ParteExtraida {
+  nome: string;
+  tipo: "pf" | "pj";
+  cpf_cnpj?: string | null;
+  endereco?: string | null;
+  email?: string | null;
+  telefone?: string | null;
+  qualificacao?: string | null;
+}
+
+interface ExtraiPartes {
+  polo_ativo: ParteExtraida[];
+  polo_passivo: ParteExtraida[];
+  advogados: { nome: string; oab?: string | null }[];
+  peca_usada: { id: string; tipo: string; pagina: number };
+}
+
+// ── Modal de partes extraídas ─────────────────────────────────────────────
+
+function ModalPartesExtraidas({ dados, processoId, onClose, onClienteCriado }: {
+  dados: ExtraiPartes;
+  processoId: string;
+  onClose: () => void;
+  onClienteCriado: () => void;
+}) {
+  const [criando, setCriando] = useState<string | null>(null);
+  const [criados, setCriados] = useState<Set<string>>(new Set());
+  const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+  const auth = () => ({ "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("analjur_token")}` });
+
+  async function criarCliente(p: ParteExtraida, polo: string) {
+    const key = `${polo}-${p.nome}`;
+    setCriando(key);
+    try {
+      const res = await fetch(`${BASE}/clientes`, {
+        method: "POST", headers: auth(),
+        body: JSON.stringify({
+          nome: p.nome, tipo: p.tipo,
+          cpf_cnpj: p.cpf_cnpj || undefined,
+          endereco: p.endereco || undefined,
+          email: p.email || undefined,
+          telefone: p.telefone || undefined,
+          observacoes: p.qualificacao ? `Polo ${polo} — ${p.qualificacao}` : undefined,
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const novo = await res.json();
+      // Vincula ao processo
+      await fetch(`${BASE}/clientes/${novo.id}/vincular-processo/${processoId}`, {
+        method: "PATCH", headers: auth(),
+      });
+      setCriados(prev => new Set([...prev, key]));
+      onClienteCriado();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Erro ao criar cliente");
+    } finally {
+      setCriando(null);
+    }
+  }
+
+  function ParteRow({ p, polo }: { p: ParteExtraida; polo: string }) {
+    const key = `${polo}-${p.nome}`;
+    const feito = criados.has(key);
+    const loading = criando === key;
+    return (
+      <div className="flex items-start gap-3 px-3 py-3 rounded-xl border border-white/10 bg-white/5">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-bold text-white truncate">{p.nome}</p>
+          <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
+            {p.cpf_cnpj && <span className="text-[10px] text-white/50 font-mono">{p.cpf_cnpj}</span>}
+            {p.endereco && <span className="text-[10px] text-white/40 truncate max-w-[220px]">{p.endereco}</span>}
+            {p.email && <span className="text-[10px] text-white/40">{p.email}</span>}
+            {p.telefone && <span className="text-[10px] text-white/40">{p.telefone}</span>}
+          </div>
+        </div>
+        <button
+          onClick={() => criarCliente(p, polo)}
+          disabled={feito || !!loading}
+          className={`flex-shrink-0 text-xs font-bold px-3 py-1.5 rounded-lg transition-all ${
+            feito
+              ? "bg-emerald-600/30 text-emerald-400 cursor-default"
+              : "bg-gold text-navy hover:bg-gold/80"
+          } disabled:opacity-60`}>
+          {loading ? "…" : feito ? "✓ Cadastrado" : "Cadastrar"}
+        </button>
+      </div>
+    );
+  }
+
+  const todasCriadas = [...dados.polo_ativo, ...dados.polo_passivo].every(
+    (p, i, arr) => {
+      const polo = i < dados.polo_ativo.length ? "Ativo" : "Passivo";
+      return criados.has(`${polo}-${p.nome}`);
+    }
+  );
+
+  return (
+    <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+      <div className="bg-[#0f1923] border border-white/10 rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-hidden flex flex-col">
+        <div className="px-5 py-4 border-b border-white/10 flex items-center justify-between flex-shrink-0">
+          <div>
+            <p className="text-white font-bold">Partes extraídas da petição inicial</p>
+            <p className="text-white/40 text-xs mt-0.5">
+              Peça: {dados.peca_usada.tipo ?? "documento"} · pág. {dados.peca_usada.pagina}
+            </p>
+          </div>
+          <button onClick={onClose} className="text-white/30 hover:text-white transition-colors">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          {dados.polo_ativo.length > 0 && (
+            <div>
+              <p className="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-2">Polo Ativo (Autor)</p>
+              <div className="space-y-2">
+                {dados.polo_ativo.map((p, i) => <ParteRow key={i} p={p} polo="Ativo" />)}
+              </div>
+            </div>
+          )}
+          {dados.polo_passivo.length > 0 && (
+            <div>
+              <p className="text-[10px] font-bold text-purple-400 uppercase tracking-widest mb-2">Polo Passivo (Réu)</p>
+              <div className="space-y-2">
+                {dados.polo_passivo.map((p, i) => <ParteRow key={i} p={p} polo="Passivo" />)}
+              </div>
+            </div>
+          )}
+          {dados.advogados && dados.advogados.length > 0 && (
+            <div>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Advogados</p>
+              <div className="space-y-1.5">
+                {dados.advogados.map((a, i) => (
+                  <div key={i} className="flex items-center gap-2 text-xs text-white/60 px-3 py-2 rounded-lg border border-white/5 bg-white/3">
+                    <span className="font-semibold text-white/80">{a.nome}</span>
+                    {a.oab && <span className="text-white/40 font-mono">{a.oab}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="px-5 py-4 border-t border-white/10 flex-shrink-0">
+          <button
+            onClick={onClose}
+            className={`w-full py-2.5 rounded-xl text-sm font-bold transition-all ${
+              todasCriadas
+                ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                : "bg-white/10 text-white/60 hover:bg-white/15"
+            }`}>
+            {todasCriadas ? "Concluído ✓" : "Fechar"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Componentes base ──────────────────────────────────────────────────────
 
 function Spinner({ sm }: { sm?: boolean }) {
@@ -4643,6 +4806,8 @@ export default function ProcessoPage() {
   const [syncErro, setSyncErro] = useState<string | null>(null);
   const [partesDatajud, setPartesDatajud] = useState<SyncDataJudResult["partes"]>([]);
   const [gerandoRelatorio, setGerandoRelatorio] = useState(false);
+  const [extraindoPartes, setExtraindoPartes] = useState(false);
+  const [partesExtraidas, setPartesExtraidas] = useState<ExtraiPartes | null>(null);
 
   const carregar = useCallback(async () => {
     try {
@@ -4665,6 +4830,27 @@ export default function ProcessoPage() {
       alert(e instanceof Error ? e.message : "Erro ao gerar relatório");
     } finally {
       setGerandoRelatorio(false);
+    }
+  }
+
+  async function handleExtrairPartes() {
+    setExtraindoPartes(true);
+    try {
+      const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+      const res = await fetch(`${BASE}/processos/${id}/extrair-partes`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${localStorage.getItem("analjur_token")}` },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error((err as { detail?: string }).detail ?? "Erro na extração");
+      }
+      const dados: ExtraiPartes = await res.json();
+      setPartesExtraidas(dados);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Erro ao extrair partes");
+    } finally {
+      setExtraindoPartes(false);
     }
   }
 
@@ -4820,6 +5006,21 @@ export default function ProcessoPage() {
                       <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
                     </svg>
                     {sincronizando ? "Sync…" : "DataJud"}
+                  </button>
+                  <button onClick={handleExtrairPartes} disabled={extraindoPartes}
+                    title="Extrair dados das partes da petição inicial"
+                    className="flex items-center gap-2 text-xs font-semibold text-amber-300 border border-amber-400/30 hover:border-amber-400/60 hover:text-amber-200 px-3 py-2 rounded-xl transition-all whitespace-nowrap disabled:opacity-50">
+                    {extraindoPartes ? (
+                      <svg className="animate-spin" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <circle cx="12" cy="12" r="10" className="opacity-25"/><path className="opacity-75" d="M4 12a8 8 0 018-8V0"/>
+                      </svg>
+                    ) : (
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="8" cy="7" r="4"/><path d="M2 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/>
+                        <line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/>
+                      </svg>
+                    )}
+                    {extraindoPartes ? "Extraindo…" : "Extrair Partes"}
                   </button>
                   <button onClick={() => setModalEditar(true)}
                     title="Editar processo"
@@ -5023,6 +5224,16 @@ export default function ProcessoPage() {
           processo={processo}
           onSalvar={p => { setProcesso(p); setModalEditar(false); }}
           onFechar={() => setModalEditar(false)}
+        />
+      )}
+
+      {/* Modal partes extraídas da petição inicial */}
+      {partesExtraidas && (
+        <ModalPartesExtraidas
+          dados={partesExtraidas}
+          processoId={id}
+          onClose={() => setPartesExtraidas(null)}
+          onClienteCriado={() => carregar()}
         />
       )}
     </div>
