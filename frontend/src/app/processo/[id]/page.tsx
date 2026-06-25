@@ -1817,6 +1817,8 @@ function AbaAnalises({ processoId, processo, onRefreshProcesso }: { processoId: 
     setStreamPct(0);
 
     const docIds = docsSelecionados.length < docs.length ? docsSelecionados : undefined;
+    const tipoLabel = TIPOS_ANALISE.find(t => t.id === tipoSelecionado)?.label ?? tipoSelecionado.replace(/_/g, " ");
+    const inicioMs = Date.now();
 
     try {
       const resp = await api.analises.stream(processoId, tipoSelecionado, undefined, docIds);
@@ -1847,6 +1849,15 @@ function AbaAnalises({ processoId, processo, onRefreshProcesso }: { processoId: 
               setStreamPct(100);
               setStreamMsg("Análise concluída!");
               setAnalises(prev => [ev.analise as Analise, ...prev]);
+
+              // Auto-registra tempo de análise no timesheet
+              const duracaoMin = Math.max(1, Math.round((Date.now() - inicioMs) / 60000));
+              api.timesheet.lancar(processoId, {
+                descricao: `Análise IA: ${tipoLabel}`,
+                tipo: "analise_ia",
+                duracao_min: duracaoMin,
+                data_lancamento: new Date().toISOString().split("T")[0],
+              }).catch(() => {}); // silencioso — timesheet é best-effort
             } else if (ev.type === "error") {
               throw new Error(ev.msg ?? "Erro ao gerar análise");
             }
@@ -4630,6 +4641,7 @@ export default function ProcessoPage() {
   const [sincronizando, setSincronizando] = useState(false);
   const [syncResult, setSyncResult] = useState<SyncDataJudResult | null>(null);
   const [syncErro, setSyncErro] = useState<string | null>(null);
+  const [partesDatajud, setPartesDatajud] = useState<SyncDataJudResult["partes"]>([]);
   const [gerandoRelatorio, setGerandoRelatorio] = useState(false);
 
   const carregar = useCallback(async () => {
@@ -4660,15 +4672,25 @@ export default function ProcessoPage() {
     setSincronizando(true);
     setSyncResult(null);
     setSyncErro(null);
+    setPartesDatajud([]);
     try {
       const r = await api.monitoramento.sync(id);
       setSyncResult(r);
-      if (r.novos > 0) {
-        // Recarrega cronologia se houve novos eventos
-        await carregar();
+      if (r.partes && r.partes.length > 0 && !processo?.cliente_id) {
+        setPartesDatajud(r.partes);
       }
+      if (r.novos > 0) await carregar();
     } catch (e) {
-      setSyncErro(e instanceof Error ? e.message : "Erro ao sincronizar com DataJud");
+      const msg = e instanceof Error ? e.message : "Erro ao sincronizar com DataJud";
+      // Melhora mensagem de 401 para o usuário
+      if (msg.includes("401")) {
+        setSyncErro(
+          "Chave da API DataJud expirou (401). Acesse datajud-wiki.cnj.jus.br/api-publica/ " +
+          "para obter a chave atual e configure a variável DATAJUD_API_KEY no servidor (Render)."
+        );
+      } else {
+        setSyncErro(msg);
+      }
     } finally {
       setSincronizando(false);
     }
@@ -4677,7 +4699,7 @@ export default function ProcessoPage() {
   if (loading) return (
     <div className="flex min-h-screen bg-bg">
       <Sidebar />
-      <div className="flex-1 sm:ml-60 flex items-center justify-center"><Spinner /></div>
+      <div className="flex-1 sm:ml-0 flex items-center justify-center"><Spinner /></div>
     </div>
   );
   if (!processo) return null;
@@ -4693,7 +4715,7 @@ export default function ProcessoPage() {
   return (
     <div className="flex h-screen bg-[#f4f5f7] overflow-hidden">
       <Sidebar />
-      <div className="flex-1 sm:ml-60 flex flex-col min-w-0 overflow-hidden">
+      <div className="flex-1 sm:ml-0 flex flex-col min-w-0 overflow-hidden">
         <TopBar
           title={processo.numero_cnj ?? processo.id.slice(0, 8) + "…"}
           subtitle={[processo.tribunal, processo.vara].filter(Boolean).join(" · ") || "Processo Jurídico"}
@@ -4708,16 +4730,13 @@ export default function ProcessoPage() {
             <div className="absolute right-0 top-0 bottom-0 w-1 bg-gold opacity-60" />
 
             <div className="relative px-6 pt-5 pb-0">
-              {/* Breadcrumb */}
-              <button onClick={() => router.push("/dashboard")}
-                className="flex items-center gap-1.5 text-white/40 hover:text-white/80 text-xs font-medium mb-4 transition-colors group">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+              {/* Voltar */}
+              <button onClick={() => router.back()}
+                className="flex items-center justify-center w-7 h-7 rounded-lg bg-white/8 hover:bg-white/15 text-white/50 hover:text-white transition-all mb-4 group">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
                   className="group-hover:-translate-x-0.5 transition-transform">
-                  <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
+                  <path d="M19 12H5"/><polyline points="12 19 5 12 12 5"/>
                 </svg>
-                Dashboard
-                <span className="text-white/20 mx-1">›</span>
-                <span className="text-white/60">{processo.numero_cnj ?? "Processo"}</span>
               </button>
 
               <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 pb-5">
@@ -4841,10 +4860,57 @@ export default function ProcessoPage() {
                     </div>
                   )}
                   {syncErro && (
-                    <div className="rounded-xl border border-red-400/30 bg-red-50/10 px-4 py-3 flex items-center gap-3">
-                      <span className="text-base">❌</span>
-                      <p className="text-sm text-red-300 flex-1">{syncErro}</p>
-                      <button onClick={() => setSyncErro(null)} className="text-white/30 hover:text-white/70 text-xs">✕</button>
+                    <div className="rounded-xl border border-red-400/30 bg-red-50/10 px-4 py-3 flex items-start gap-3">
+                      <span className="text-base flex-shrink-0 mt-0.5">❌</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-bold text-red-300 mb-0.5">Erro ao sincronizar DataJud</p>
+                        <p className="text-xs text-red-300/70 break-words">{syncErro}</p>
+                        {syncErro.includes("401") && (
+                          <a href="https://datajud-wiki.cnj.jus.br/api-publica/"
+                            target="_blank" rel="noopener noreferrer"
+                            className="text-xs text-amber-400 underline mt-1 inline-block hover:text-amber-300">
+                            → Obter chave DataJud atualizada
+                          </a>
+                        )}
+                      </div>
+                      <button onClick={() => setSyncErro(null)} className="text-white/30 hover:text-white/70 text-xs flex-shrink-0">✕</button>
+                    </div>
+                  )}
+
+                  {/* Partes do DataJud — oferecer vinculação de cliente */}
+                  {partesDatajud && partesDatajud.length > 0 && (
+                    <div className="rounded-xl border border-amber-400/40 bg-amber-900/20 px-4 py-3 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-amber-400 flex-shrink-0">
+                          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                          <circle cx="9" cy="7" r="4"/>
+                          <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                          <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                        </svg>
+                        <p className="text-xs font-bold text-amber-300">Partes identificadas no DataJud — quem é o seu cliente?</p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {partesDatajud.map((p, i) => (
+                          <button key={i}
+                            onClick={() => {
+                              // Abre nova aba para criar cliente com o nome pré-preenchido
+                              window.open(`/clientes?novo=1&nome=${encodeURIComponent(p.nome)}&processo=${id}`, "_blank");
+                              setPartesDatajud([]);
+                            }}
+                            className={`text-xs px-3 py-1.5 rounded-lg border font-medium transition-all hover:scale-105 ${
+                              p.polo === "ATIVO"
+                                ? "bg-blue-900/30 border-blue-400/40 text-blue-300 hover:bg-blue-900/60"
+                                : "bg-purple-900/30 border-purple-400/40 text-purple-300 hover:bg-purple-900/60"
+                            }`}>
+                            <span className="opacity-60 mr-1">{p.polo === "ATIVO" ? "Polo A:" : "Polo P:"}</span>
+                            {p.nome}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <p className="text-[10px] text-amber-400/60">Clique na parte para cadastrá-la como cliente vinculado a este processo</p>
+                        <button onClick={() => setPartesDatajud([])} className="text-[10px] text-white/30 hover:text-white/60">dispensar</button>
+                      </div>
                     </div>
                   )}
                 </div>

@@ -6,15 +6,26 @@ interface SidebarCtx {
   open: boolean;
   toggle: () => void;
   close: () => void;
+  collapsed: boolean;
+  toggleCollapse: () => void;
 }
 
-const Ctx = createContext<SidebarCtx>({ open: false, toggle: () => {}, close: () => {} });
+const Ctx = createContext<SidebarCtx>({
+  open: false, toggle: () => {}, close: () => {},
+  collapsed: false, toggleCollapse: () => {},
+});
 
 export function SidebarProvider({ children }: { children: React.ReactNode }) {
-  const [open, setOpen] = useState(false);
-  const toggle = useCallback(() => setOpen(v => !v), []);
-  const close  = useCallback(() => setOpen(false), []);
-  return <Ctx.Provider value={{ open, toggle, close }}>{children}</Ctx.Provider>;
+  const [open, setOpen]           = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
+  const toggle         = useCallback(() => setOpen(v => !v), []);
+  const close          = useCallback(() => setOpen(false), []);
+  const toggleCollapse = useCallback(() => setCollapsed(v => !v), []);
+  return (
+    <Ctx.Provider value={{ open, toggle, close, collapsed, toggleCollapse }}>
+      {children}
+    </Ctx.Provider>
+  );
 }
 
 export function useSidebar() { return useContext(Ctx); }

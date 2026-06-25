@@ -3,6 +3,8 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { api, type Cliente } from "@/lib/api";
+import Sidebar from "@/components/Sidebar";
+import TopBar from "@/components/TopBar";
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -284,59 +286,53 @@ export default function ClientesPage() {
   const totalProcessos = clientes.reduce((a, c) => a + c.total_processos, 0);
 
   return (
-    <div className="min-h-screen bg-surface">
-      {/* Header */}
-      <header className="bg-bg border-b border-border px-6 py-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-4">
-            <button onClick={() => router.push("/dashboard")}
-              className="text-muted hover:text-text-main transition-colors text-sm flex items-center gap-1.5">
-              ← Dashboard
+    <div className="flex h-screen bg-bg overflow-hidden">
+      <Sidebar />
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <TopBar
+          title="Clientes"
+          subtitle={`${clientes.length} cadastrados · ${totalProcessos} processos · ${totalAtivos} ativos`}
+        />
+
+        {/* Barra de ações */}
+        <div className="flex-shrink-0 flex items-center justify-between gap-3 px-6 py-3 border-b border-border bg-surface flex-wrap">
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <button onClick={() => router.back()}
+              className="flex items-center justify-center w-7 h-7 rounded-lg hover:bg-border/60 text-muted hover:text-text-main transition-all group flex-shrink-0">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                className="group-hover:-translate-x-0.5 transition-transform">
+                <path d="M19 12H5"/><polyline points="12 19 5 12 12 5"/>
+              </svg>
             </button>
-            <div className="h-5 w-px bg-border" />
-            <div>
-              <h1 className="text-lg font-bold text-text-main">Clientes</h1>
-              <p className="text-xs text-muted">{clientes.length} cadastrados · {totalProcessos} processos · {totalAtivos} ativos</p>
+            <div className="relative flex-1 min-w-40 max-w-md">
+              <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-muted w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+              <input
+                className="w-full pl-8 pr-4 py-1.5 text-xs bg-bg border border-border rounded-lg text-text-main placeholder-muted focus:outline-none focus:ring-2 focus:ring-gold/40"
+                placeholder="Buscar por nome, CPF/CNPJ, e-mail…"
+                value={busca}
+                onChange={e => setBusca(e.target.value)}
+              />
+            </div>
+            <div className="flex items-center gap-1 bg-bg border border-border rounded-lg p-0.5">
+              {(["todos", "pf", "pj"] as const).map(t => (
+                <button key={t} onClick={() => setFiltroTipo(t)}
+                  className={`text-xs px-3 py-1.5 rounded-md font-semibold transition-colors ${
+                    filtroTipo === t ? "bg-gold text-navy" : "text-muted hover:text-text-main"
+                  }`}>
+                  {t === "todos" ? "Todos" : t === "pf" ? "PF" : "PJ"}
+                </button>
+              ))}
             </div>
           </div>
-          <button
-            onClick={() => setModal("criar")}
-            className="bg-gold text-navy font-semibold rounded-xl px-4 py-2 text-sm hover:bg-gold-light transition-colors">
+          <button onClick={() => setModal("criar")}
+            className="bg-gold text-navy font-bold rounded-lg px-4 py-1.5 text-xs hover:bg-gold-light transition-colors flex-shrink-0">
             + Novo Cliente
           </button>
         </div>
-      </header>
 
-      <main className="max-w-7xl mx-auto px-6 py-6">
-        {/* Filtros */}
-        <div className="flex items-center gap-3 mb-6 flex-wrap">
-          <div className="relative flex-1 min-w-56">
-            <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-muted w-4 h-4" xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-            </svg>
-            <input
-              className="w-full pl-9 pr-4 py-2 text-sm bg-bg border border-border rounded-xl text-text-main placeholder-muted focus:outline-none focus:ring-2 focus:ring-gold/40"
-              placeholder="Buscar por nome, CPF/CNPJ, e-mail…"
-              value={busca}
-              onChange={e => setBusca(e.target.value)}
-            />
-          </div>
-          <div className="flex items-center gap-1 bg-bg border border-border rounded-xl p-1">
-            {(["todos", "pf", "pj"] as const).map(t => (
-              <button key={t}
-                onClick={() => setFiltroTipo(t)}
-                className={`text-xs px-3 py-1.5 rounded-lg font-semibold transition-colors ${
-                  filtroTipo === t
-                    ? "bg-gold text-navy"
-                    : "text-muted hover:text-text-main"
-                }`}>
-                {t === "todos" ? "Todos" : t === "pf" ? "👤 PF" : "🏢 PJ"}
-              </button>
-            ))}
-          </div>
-        </div>
-
+        <main className="flex-1 overflow-y-auto px-6 py-5">
         {/* Grid */}
         {loading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -390,7 +386,8 @@ export default function ClientesPage() {
             ))}
           </div>
         )}
-      </main>
+        </main>
+      </div>
 
       {/* Modal criar */}
       {modal === "criar" && (
@@ -427,3 +424,4 @@ export default function ClientesPage() {
     </div>
   );
 }
+

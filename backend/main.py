@@ -16,6 +16,7 @@ from .routers.relatorio import router as relatorio_router
 from .routers.atendimentos import router as atendimentos_router
 from .routers.clientes import router as clientes_router
 from .routers.agenda import router as agenda_router
+from .routers.financeiro import router as financeiro_router
 from .services.worker import loop_worker
 
 
@@ -64,6 +65,7 @@ app.include_router(relatorio_router)
 app.include_router(atendimentos_router)
 app.include_router(clientes_router)
 app.include_router(agenda_router)
+app.include_router(financeiro_router)
 
 
 @app.get("/health")

@@ -285,9 +285,12 @@ export default function ClienteDetalhe({ params }: { params: Promise<{ id: strin
       <div className="min-h-screen bg-surface flex flex-col items-center justify-center gap-3">
         <p className="text-2xl">⚠️</p>
         <p className="text-text-main font-semibold">Cliente não encontrado</p>
-        <button onClick={() => router.push("/clientes")}
-          className="text-sm text-muted hover:text-text-main underline">
-          Voltar para Clientes
+        <button onClick={() => router.back()}
+          className="flex items-center justify-center w-7 h-7 rounded-lg hover:bg-border/60 text-muted hover:text-text-main transition-all group">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+            className="group-hover:-translate-x-0.5 transition-transform">
+            <path d="M19 12H5"/><polyline points="12 19 5 12 12 5"/>
+          </svg>
         </button>
       </div>
     );

@@ -278,6 +278,56 @@ export interface AgendaResult {
   };
 }
 
+export interface Honorario {
+  id: string;
+  cliente_id: string;
+  processo_id?: string;
+  tipo: "fixo" | "exito" | "parcelas" | "hora";
+  descricao?: string;
+  valor_total: number;
+  percentual_exito?: number;
+  valor_causa?: number;
+  status: "ativo" | "quitado" | "suspenso" | "cancelado";
+  data_inicio: string;
+  data_fim?: string;
+  observacoes?: string;
+  created_at: string;
+  clientes?: { nome: string };
+  processos?: { numero_cnj?: string; assunto?: string };
+}
+
+export interface Parcela {
+  id: string;
+  honorario_id: string;
+  cliente_id: string;
+  processo_id?: string;
+  numero_parcela: number;
+  valor: number;
+  vencimento: string;
+  status: "pendente" | "pago" | "vencido" | "cancelado";
+  data_pagamento?: string;
+  valor_pago?: number;
+  forma_pagamento?: string;
+  observacoes?: string;
+}
+
+export interface FinanceiroDashboard {
+  total_contratado: number;
+  total_recebido: number;
+  total_pendente: number;
+  total_vencido: number;
+  valor_proximos_30d: number;
+  qtd_proximos_30d: number;
+  valor_timesheet_acumulado: number;
+  taxa_inadimplencia: number;
+}
+
+export interface ParteSugestao {
+  nome: string;
+  polo: "ATIVO" | "PASSIVO" | string;
+  tipo: string;
+}
+
 export interface SyncDataJudResult {
   novos: number;
   total_datajud: number;
@@ -287,6 +337,7 @@ export interface SyncDataJudResult {
   status: "ok" | "nao_encontrado";
   msg?: string;
   ultimo_sync?: string;
+  partes?: ParteSugestao[];
 }
 
 // ── Preços Claude API (USD por 1K tokens) ────────────────────────────────
@@ -340,6 +391,10 @@ export const api = {
       req<Processo>(`/processos/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
     deletar: (id: string) => req<void>(`/processos/${id}`, { method: "DELETE" }),
     pecas: (processoId: string) => req<Peca[]>(`/processos/${processoId}/pecas`),
+    partes: (processoId: string) =>
+      req<{ id: string; tipo: string; nome: string; oab?: string }[]>(
+        `/processos/${processoId}/partes`
+      ),
   },
 
   documentos: {
@@ -525,6 +580,10 @@ export const api = {
       req<{ tipo: string; status: string; total: number; avg_seg?: number }[]>(
         "/jobs/fila/status"
       ),
+    deletar: (jobId: string) =>
+      req<void>(`/jobs/${jobId}`, { method: "DELETE" }),
+    cancelar: (jobId: string) =>
+      req<Job>(`/jobs/${jobId}/cancelar`, { method: "POST" }),
   },
 
   monitoramento: {
@@ -610,6 +669,46 @@ export const api = {
       req<{ ok: boolean }>(`/clientes/${clienteId}/vincular-processo/${processoId}`, { method: "PATCH" }),
     desvincularProcesso: (clienteId: string, processoId: string) =>
       req<{ ok: boolean }>(`/clientes/${clienteId}/vincular-processo/${processoId}`, { method: "DELETE" }),
+  },
+
+  financeiro: {
+    dashboard: () => req<FinanceiroDashboard>("/financeiro/dashboard"),
+    honorarios: {
+      listar: (params?: { cliente_id?: string; processo_id?: string; status?: string }) => {
+        const q = new URLSearchParams();
+        if (params?.cliente_id)  q.set("cliente_id", params.cliente_id);
+        if (params?.processo_id) q.set("processo_id", params.processo_id);
+        if (params?.status)      q.set("status", params.status);
+        return req<Honorario[]>(`/financeiro/honorarios${q.toString() ? `?${q}` : ""}`);
+      },
+      criar: (body: {
+        cliente_id: string; processo_id?: string; tipo?: string;
+        descricao?: string; valor_total: number; num_parcelas?: number;
+        percentual_exito?: number; valor_causa?: number;
+        data_inicio?: string; observacoes?: string;
+      }) => req<Honorario>("/financeiro/honorarios", { method: "POST", body: JSON.stringify(body) }),
+      atualizar: (id: string, body: { descricao?: string; valor_total?: number; status?: string; observacoes?: string; data_fim?: string }) =>
+        req<Honorario>(`/financeiro/honorarios/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+      deletar: (id: string) => req<void>(`/financeiro/honorarios/${id}`, { method: "DELETE" }),
+      parcelas: (honorarioId: string) => req<Parcela[]>(`/financeiro/honorarios/${honorarioId}/parcelas`),
+      fromTimesheet: (processoId: string) =>
+        req<Honorario & { total_horas: number; total_entradas: number }>(
+          `/financeiro/honorarios/from-timesheet/${processoId}`, { method: "POST" }
+        ),
+    },
+    parcelas: {
+      listar: (params?: { cliente_id?: string; status?: string; vencimento_ate?: string }) => {
+        const q = new URLSearchParams();
+        if (params?.cliente_id)     q.set("cliente_id", params.cliente_id);
+        if (params?.status)         q.set("status", params.status);
+        if (params?.vencimento_ate) q.set("vencimento_ate", params.vencimento_ate);
+        return req<Parcela[]>(`/financeiro/parcelas${q.toString() ? `?${q}` : ""}`);
+      },
+      pagar: (id: string, body: { valor_pago: number; data_pagamento: string; forma_pagamento?: string; observacoes?: string }) =>
+        req<Parcela>(`/financeiro/parcelas/${id}/pagar`, { method: "POST", body: JSON.stringify(body) }),
+      cancelar: (id: string) =>
+        req<Parcela>(`/financeiro/parcelas/${id}/cancelar`, { method: "POST" }),
+    },
   },
 
   auth: {
