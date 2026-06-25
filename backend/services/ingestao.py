@@ -329,6 +329,18 @@ async def processar_conteudo(
         segmentos = segmentar_paginas(paginas)
         logger.info(f"Segmentação: {len(segmentos)} peça(s) identificada(s)")
 
+        # Carrega o número CNJ do processo para detectar peças de outros processos
+        proc_info = await sb_run(
+            lambda: sb.table("processos")
+            .select("numero_cnj")
+            .eq("id", str(processo_id))
+            .limit(1)
+            .execute()
+        )
+        numero_cnj_proc = (proc_info.data[0].get("numero_cnj") or "") if proc_info.data else ""
+        # Extrai apenas os dígitos do CNJ para comparação flexível
+        cnj_digits = re.sub(r"\D", "", numero_cnj_proc) if numero_cnj_proc else ""
+
         pecas_rows = []
         for seg in segmentos:
             # Usa tipo_hint se detectado; caso contrário, classifica com IA/heurística
@@ -340,13 +352,26 @@ async def processar_conteudo(
                 tipo_peca = resultado.tipo_peca
                 confianca  = resultado.confianca
 
+            # ── Detecta se esta peça menciona um número CNJ diferente do processo atual ──
+            # Formato CNJ: 7-2.4-1.2.4 = NNNNNNN-DD.AAAA.J.TT.OOOO
+            cnj_pattern = re.compile(r"\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}")
+            origem_externa: Optional[str] = None
+            if cnj_digits:
+                matches = cnj_pattern.findall(seg["texto"][:5000])
+                for m in matches:
+                    m_digits = re.sub(r"\D", "", m)
+                    if m_digits and m_digits != cnj_digits:
+                        origem_externa = m  # primeiro número CNJ diferente encontrado
+                        break
+
             n_pags = seg["pagina_fim"] - seg["pagina_inicio"] + 1
             logger.info(
                 f"  Peça pág. {seg['pagina_inicio']}–{seg['pagina_fim']} "
                 f"({n_pags} pág.) → {tipo_peca} ({confianca:.0%})"
+                + (f" [EXTERNO: {origem_externa}]" if origem_externa else "")
             )
 
-            pecas_rows.append({
+            row: dict = {
                 "id":                       str(uuid.uuid4()),
                 "documento_id":             doc_id,
                 "processo_id":              str(processo_id),
@@ -355,7 +380,11 @@ async def processar_conteudo(
                 "pagina_fim":               seg["pagina_fim"],
                 "conteudo_texto":           seg["texto"][:500_000],
                 "confianca_classificacao":  confianca,
-            })
+            }
+            # Marca origem externa no campo resumo (usado pela IA para contexto)
+            if origem_externa:
+                row["resumo"] = f"[DOCUMENTO DE OUTRO PROCESSO: {origem_externa}] Esta peça foi juntada como prova ou precedente de processo distinto do atual."
+            pecas_rows.append(row)
 
         # Insere todas as peças de uma vez (ou em lotes para documentos grandes)
         LOTE = 20

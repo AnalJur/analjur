@@ -21,6 +21,9 @@ class Settings(BaseSettings):
 
     llm_model: str = "claude-sonnet-4-20250514"
 
+    # DataJud CNJ — chave pública; pode ser sobrescrita via env DATAJUD_API_KEY
+    datajud_api_key: str = "cDZHYzlZa0JadVREZDJCendQbXY6SkJlTzNjLV9TaENMV1Jzd2d0Z0Q="
+
     default_tenant_id: str = "00000000-0000-0000-0000-000000000001"
     default_usuario_id: str = "00000000-0000-0000-0000-000000000002"
 

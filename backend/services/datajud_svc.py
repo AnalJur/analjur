@@ -14,12 +14,11 @@ import httpx
 from loguru import logger
 
 from ..database import get_supabase, sb_run
+from ..config import get_settings
 
 # ── Configuração DataJud ───────────────────────────────────────────────────
 
 DATAJUD_BASE = "https://api-publica.datajud.cnj.jus.br"
-# Chave pública CNJ — autorizada para consultas gerais
-DATAJUD_KEY  = "cDZHYzlZa0JadVREZDJCendQbXY6SkJlTzNjLV9TaENMV1Jzd2d0Z0Q="
 
 # Sigla do tribunal → índice ElasticSearch do DataJud
 TRIBUNAL_INDEX: dict[str, str] = {
@@ -180,7 +179,12 @@ def _get_index(tribunal: str) -> Optional[str]:
 async def consultar_datajud(numero_cnj: str, tribunal: str) -> dict:
     """
     Retorna o documento completo do processo no DataJud, ou {} se não encontrado.
+    Tenta múltiplos formatos de autenticação (ApiKey e Basic) para compatibilidade
+    com diferentes versões da API pública CNJ.
     """
+    settings = get_settings()
+    api_key  = settings.datajud_api_key
+
     index = _get_index(tribunal)
     if not index:
         inferido = _tribunal_do_cnj(numero_cnj)
@@ -195,25 +199,44 @@ async def consultar_datajud(numero_cnj: str, tribunal: str) -> dict:
     numero_limpo = numero_cnj.replace(".", "").replace("-", "").replace("/", "")
 
     url  = f"{DATAJUD_BASE}/{index}/_search"
-    hdrs = {
-        "Authorization": f"ApiKey {DATAJUD_KEY}",
-        "Content-Type":  "application/json",
-    }
     body = {
         "query": {"match": {"numeroProcesso": numero_limpo}},
         "sort":  [{"dataHoraUltimaAtualizacao": {"order": "desc"}}],
         "size":  1,
     }
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(url, headers=hdrs, json=body)
-        resp.raise_for_status()
-        data = resp.json()
+    # Tenta progressivamente: ApiKey → Basic → sem prefixo
+    auth_variants = [
+        {"Authorization": f"ApiKey {api_key}", "Content-Type": "application/json"},
+        {"Authorization": f"Basic {api_key}",  "Content-Type": "application/json"},
+        {"Authorization": api_key,              "Content-Type": "application/json"},
+    ]
 
-    hits = data.get("hits", {}).get("hits", [])
-    if not hits:
-        return {}
-    return hits[0].get("_source", {})
+    last_status = 0
+    async with httpx.AsyncClient(timeout=30) as client:
+        for hdrs in auth_variants:
+            resp = await client.post(url, headers=hdrs, json=body)
+            last_status = resp.status_code
+            if resp.status_code == 200:
+                data = resp.json()
+                hits = data.get("hits", {}).get("hits", [])
+                if not hits:
+                    return {}
+                return hits[0].get("_source", {})
+            if resp.status_code != 401:
+                # Outro erro (5xx etc.) — lança diretamente
+                resp.raise_for_status()
+            logger.warning(f"DataJud 401 com variante de auth: {list(hdrs.values())[0][:20]}…")
+
+    # Todas as variantes falharam com 401
+    raise httpx.HTTPStatusError(
+        f"Client error '401 Unauthorized' para {url}\n"
+        "A chave da API DataJud pode ter expirado ou mudado.\n"
+        "Acesse https://datajud-wiki.cnj.jus.br/api-publica/ para obter a chave atual "
+        "e configure a variável de ambiente DATAJUD_API_KEY no servidor.",
+        request=resp.request,
+        response=resp,
+    )
 
 
 # ── Sincronização de um processo ──────────────────────────────────────────
@@ -361,14 +384,24 @@ async def sincronizar_processo(processo_id: uuid.UUID) -> dict:
         f"{novos} novo(s) evento(s) de {len(movimentos)} movimentos"
     )
 
+    # Monta lista de partes para o frontend oferecer vinculação de cliente
+    partes_retorno = []
+    for p in partes_dj[:20]:
+        nome = p.get("nome", "").strip()
+        polo = p.get("polo", "").upper()
+        tipo = (p.get("tipo") or {}).get("nome", "") if isinstance(p.get("tipo"), dict) else ""
+        if nome:
+            partes_retorno.append({"nome": nome, "polo": polo, "tipo": tipo})
+
     return {
-        "novos":       novos,
+        "novos":         novos,
         "total_datajud": len(movimentos),
-        "tribunal":    dados.get("tribunal", tribunal),
-        "classe":      dados.get("classe", {}).get("nome"),
-        "sistema":     dados.get("sistema", {}).get("nome"),
-        "status":      "ok",
-        "ultimo_sync": meta["datajud_sync"]["ultimo_sync"],
+        "tribunal":      dados.get("tribunal", tribunal),
+        "classe":        dados.get("classe", {}).get("nome"),
+        "sistema":       dados.get("sistema", {}).get("nome"),
+        "status":        "ok",
+        "ultimo_sync":   meta["datajud_sync"]["ultimo_sync"],
+        "partes":        partes_retorno,  # polo ATIVO = possível cliente
     }
 
 
