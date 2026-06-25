@@ -27,6 +27,7 @@ export interface Processo {
   tribunal?: string;
   vara?: string;
   assunto?: string;
+  cidade?: string;
   status: string;
   tags: string[];
   responsavel?: string;

@@ -4674,6 +4674,7 @@ function ModalEditarProcesso({ processo, onSalvar, onFechar }: {
     tribunal:    processo.tribunal    ?? "",
     vara:        processo.vara        ?? "",
     assunto:     processo.assunto     ?? "",
+    cidade:      processo.cidade      ?? "",
     status:      processo.status      ?? "ativo",
     responsavel: processo.responsavel ?? "",
     tags:        (processo.tags ?? []).join(", "),
@@ -4699,6 +4700,7 @@ function ModalEditarProcesso({ processo, onSalvar, onFechar }: {
         tribunal:    form.tribunal    || undefined,
         vara:        form.vara        || undefined,
         assunto:     form.assunto     || undefined,
+        cidade:      form.cidade      || undefined,
         status:      form.status,
         responsavel: form.responsavel || undefined,
         tags,
@@ -4741,6 +4743,13 @@ function ModalEditarProcesso({ processo, onSalvar, onFechar }: {
             <input className={input} placeholder="1ª Vara Cível…"
               value={form.vara} onChange={e => set("vara", e.target.value)} />
           </div>
+        </div>
+
+        {/* Cidade */}
+        <div>
+          <label className="block text-xs font-semibold text-muted mb-1">Cidade</label>
+          <input className={input} placeholder="São Paulo, Goiânia, Rio de Janeiro…"
+            value={form.cidade} onChange={e => set("cidade", e.target.value)} />
         </div>
 
         {/* Assunto */}
@@ -4941,14 +4950,23 @@ export default function ProcessoPage() {
                     </div>
                   </div>
 
-                  {/* Tribunal · Vara */}
-                  {(processo.tribunal || processo.vara) && (
+                  {/* Tribunal · Vara · Cidade */}
+                  {(processo.tribunal || processo.vara || processo.cidade) && (
                     <div className="flex items-center gap-2 flex-wrap ml-4">
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gold/60 flex-shrink-0">
                         <rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/>
                       </svg>
                       {processo.tribunal && <span className="text-white/70 text-xs font-semibold">{processo.tribunal}</span>}
                       {processo.vara && <><span className="text-white/20">·</span><span className="text-white/50 text-xs">{processo.vara}</span></>}
+                      {processo.cidade && (
+                        <>
+                          <span className="text-white/20">·</span>
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gold/40 flex-shrink-0">
+                            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>
+                          </svg>
+                          <span className="text-white/50 text-xs">{processo.cidade}</span>
+                        </>
+                      )}
                     </div>
                   )}
 

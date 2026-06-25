@@ -63,7 +63,7 @@ function ModalNovoProcesso({ onClose, onCreate }: {
 }) {
   const router = useRouter();
   const dropRef = useRef<HTMLInputElement>(null);
-  const [form, setForm] = useState({ numero_cnj: "", tribunal: "", vara: "", assunto: "", cliente_id: "" });
+  const [form, setForm] = useState({ numero_cnj: "", tribunal: "", vara: "", assunto: "", cidade: "", cliente_id: "" });
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [loading, setLoading]   = useState(false);
   const [pdf, setPdf]           = useState<File | null>(null);
@@ -91,6 +91,7 @@ function ModalNovoProcesso({ onClose, onCreate }: {
       if (form.tribunal)   body.tribunal   = form.tribunal;
       if (form.vara)       body.vara       = form.vara;
       if (form.assunto)    body.assunto    = form.assunto;
+      if (form.cidade)     body.cidade     = form.cidade;
       if (form.cliente_id) body.cliente_id = form.cliente_id;
       const p = await api.processos.criar(body);
       setProcessoId(p.id);
@@ -275,6 +276,11 @@ function ModalNovoProcesso({ onClose, onCreate }: {
               <input className={inputCls} placeholder="1ª Vara Cível…"
                 value={form.vara} onChange={e => setForm(f => ({ ...f, vara: e.target.value }))} />
             </div>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-muted mb-1.5">Cidade</label>
+            <input className={inputCls} placeholder="São Paulo, Goiânia…"
+              value={form.cidade} onChange={e => setForm(f => ({ ...f, cidade: e.target.value }))} />
           </div>
           <div>
             <label className="block text-xs font-semibold text-muted mb-1.5">Assunto</label>

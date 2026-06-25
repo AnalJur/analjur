@@ -11,6 +11,7 @@ class ProcessoCreate(BaseModel):
     tribunal:    Optional[str] = None
     vara:        Optional[str] = None
     assunto:     Optional[str] = None
+    cidade:      Optional[str] = None
     tags:        list[str] = []
     metadados:   dict = {}
     cliente_id:  Optional[uuid.UUID] = None
@@ -21,6 +22,7 @@ class ProcessoUpdate(BaseModel):
     tribunal:       Optional[str] = None
     vara:           Optional[str] = None
     assunto:        Optional[str] = None
+    cidade:         Optional[str] = None
     status:         Optional[str] = None
     responsavel_id: Optional[uuid.UUID] = None
     responsavel:    Optional[str] = None   # texto livre; armazenado em metadados["responsavel"]
@@ -35,6 +37,7 @@ class ProcessoOut(BaseModel):
     tribunal:           Optional[str] = None
     vara:               Optional[str] = None
     assunto:            Optional[str] = None
+    cidade:             Optional[str] = None
     status:             str = "ativo"
     tags:               list[str] = []
     responsavel:        Optional[str] = None
