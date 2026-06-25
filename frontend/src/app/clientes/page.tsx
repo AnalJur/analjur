@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { api, type Cliente } from "@/lib/api";
 import Sidebar from "@/components/Sidebar";
 import TopBar from "@/components/TopBar";
@@ -230,12 +230,19 @@ function FormCliente({ inicial, onSalvar, onCancelar }: {
 
 export default function ClientesPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [clientes, setClientes]     = useState<Cliente[]>([]);
   const [loading, setLoading]       = useState(true);
   const [busca, setBusca]           = useState("");
   const [filtroTipo, setFiltroTipo] = useState<"todos" | "pf" | "pj">("todos");
   const [modal, setModal]           = useState<"criar" | Cliente | null>(null);
   const [deletando, setDeletando]   = useState<string | null>(null);
+
+  // Parâmetros da URL vindos do processo (DataJud ou upload)
+  const paramNovo      = searchParams.get("novo");
+  const paramNome      = searchParams.get("nome") ?? "";
+  const paramProcesso  = searchParams.get("processo") ?? "";
+  const paramPolo      = searchParams.get("polo") ?? "";
 
   const carregar = useCallback(() => {
     setLoading(true);
@@ -245,6 +252,13 @@ export default function ClientesPage() {
   }, []);
 
   useEffect(() => { carregar(); }, [carregar]);
+
+  // Abre modal automaticamente se vier com ?novo=1
+  useEffect(() => {
+    if (paramNovo === "1") {
+      setModal("criar");
+    }
+  }, [paramNovo]);
 
   const filtrados = clientes.filter(c => {
     const matchBusca = !busca ||
@@ -262,6 +276,12 @@ export default function ClientesPage() {
     const novo = await api.clientes.criar(body);
     setClientes(prev => [novo, ...prev]);
     setModal(null);
+
+    // Se veio de um processo (DataJud), vincula automaticamente e volta
+    if (paramProcesso) {
+      await api.clientes.vincularProcesso(novo.id, paramProcesso).catch(() => {});
+      router.push(`/processo/${paramProcesso}`);
+    }
   }
 
   async function atualizar(id: string, form: typeof FORM_VAZIO) {
@@ -391,8 +411,27 @@ export default function ClientesPage() {
 
       {/* Modal criar */}
       {modal === "criar" && (
-        <Modal title="Novo Cliente" onClose={() => setModal(null)}>
-          <FormCliente onSalvar={criar} onCancelar={() => setModal(null)} />
+        <Modal
+          title={paramNome ? `Cadastrar: ${paramNome}` : "Novo Cliente"}
+          onClose={() => setModal(null)}
+        >
+          {paramNome && (
+            <div className="mb-4 px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800 font-medium flex items-center gap-2">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="flex-shrink-0 text-amber-500">
+                <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+              </svg>
+              <span>
+                Identificado no DataJud como <strong>{paramNome}</strong>
+                {paramPolo ? ` (Polo ${paramPolo === "ATIVO" ? "Ativo" : "Passivo"})` : ""}.
+                {paramProcesso ? " Após salvar, será vinculado ao processo automaticamente." : ""}
+              </span>
+            </div>
+          )}
+          <FormCliente
+            inicial={{ nome: paramNome }}
+            onSalvar={criar}
+            onCancelar={() => setModal(null)}
+          />
         </Modal>
       )}
 

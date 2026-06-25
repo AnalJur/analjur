@@ -4676,7 +4676,7 @@ export default function ProcessoPage() {
     try {
       const r = await api.monitoramento.sync(id);
       setSyncResult(r);
-      if (r.partes && r.partes.length > 0 && !processo?.cliente_id) {
+      if (r.partes && r.partes.length > 0) {
         setPartesDatajud(r.partes);
       }
       if (r.novos > 0) await carregar();
@@ -4833,6 +4833,38 @@ export default function ProcessoPage() {
                 </div>
               </div>
 
+              {/* Banner: partes identificadas pelo DataJud — cadastrar cliente */}
+              {partesDatajud && partesDatajud.length > 0 && (
+                <div className="mb-2 rounded-xl border border-amber-400/50 bg-amber-900/25 px-4 py-3">
+                  <div className="flex items-center gap-2 mb-2.5">
+                    <span className="text-base">👥</span>
+                    <p className="text-sm font-bold text-amber-200">Partes identificadas no DataJud — quem é o seu cliente?</p>
+                    <button onClick={() => setPartesDatajud([])} className="ml-auto text-white/30 hover:text-white/60 text-xs">✕</button>
+                  </div>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {partesDatajud.map((p, i) => (
+                      <button key={i}
+                        onClick={() => {
+                          window.open(
+                            `/clientes?novo=1&nome=${encodeURIComponent(p.nome)}&processo=${id}&polo=${encodeURIComponent(p.polo)}`,
+                            "_blank"
+                          );
+                          setPartesDatajud([]);
+                        }}
+                        className={`text-xs px-3 py-2 rounded-lg border font-semibold transition-all hover:scale-105 flex flex-col items-start gap-0.5 ${
+                          p.polo === "ATIVO"
+                            ? "bg-blue-900/40 border-blue-400/50 text-blue-200 hover:bg-blue-900/70"
+                            : "bg-purple-900/40 border-purple-400/50 text-purple-200 hover:bg-purple-900/70"
+                        }`}>
+                        <span className="text-[10px] font-normal opacity-70">{p.polo === "ATIVO" ? "Polo Ativo" : "Polo Passivo"} · {p.tipo}</span>
+                        <span>{p.nome}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-amber-400/70">Clique na parte para cadastrá-la como cliente e vinculá-la a este processo automaticamente.</p>
+                </div>
+              )}
+
               {/* Banners sync abaixo do header */}
               {(syncResult || syncErro) && (
                 <div className="pb-3 space-y-2">
@@ -4893,8 +4925,10 @@ export default function ProcessoPage() {
                         {partesDatajud.map((p, i) => (
                           <button key={i}
                             onClick={() => {
-                              // Abre nova aba para criar cliente com o nome pré-preenchido
-                              window.open(`/clientes?novo=1&nome=${encodeURIComponent(p.nome)}&processo=${id}`, "_blank");
+                              window.open(
+                                `/clientes?novo=1&nome=${encodeURIComponent(p.nome)}&processo=${id}&polo=${encodeURIComponent(p.polo)}`,
+                                "_blank"
+                              );
                               setPartesDatajud([]);
                             }}
                             className={`text-xs px-3 py-1.5 rounded-lg border font-medium transition-all hover:scale-105 ${
