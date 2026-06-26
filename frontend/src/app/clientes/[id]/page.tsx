@@ -243,12 +243,12 @@ export default function ClienteDetalhe({ params }: { params: Promise<{ id: strin
   const carregar = useCallback(async () => {
     setLoading(true);
     try {
-      const [c, ps] = await Promise.all([
-        api.clientes.obter(id),
-        api.clientes.processos(id),
-      ]);
+      const c = await api.clientes.obter(id);
       setCliente(c);
-      setProcessos(ps);
+      // Carrega processos separadamente para não bloquear exibição do cliente
+      api.clientes.processos(id).then(setProcessos).catch(() => setProcessos([]));
+    } catch {
+      setCliente(null);
     } finally { setLoading(false); }
   }, [id]);
 

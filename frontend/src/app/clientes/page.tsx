@@ -67,31 +67,9 @@ function ClienteCard({ cliente, onEdit, onDelete, onClick }: {
   return (
     <div
       onClick={() => onClick(cliente)}
-      className="bg-bg border border-border rounded-2xl p-5 hover:border-gold/40 hover:shadow-lg transition-all cursor-pointer group relative">
+      className="bg-bg border border-border rounded-2xl p-5 hover:border-gold/40 hover:shadow-lg transition-all cursor-pointer group relative flex flex-col">
 
-      {/* Ações — aparecem no hover */}
-      <div className="absolute top-3 right-3 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-        <button
-          onClick={e => { e.stopPropagation(); onEdit(cliente); }}
-          title="Editar cliente"
-          className="w-7 h-7 flex items-center justify-center rounded-lg bg-surface border border-border hover:border-gold/40 hover:text-gold text-muted transition-all">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-          </svg>
-        </button>
-        <button
-          onClick={e => { e.stopPropagation(); onDelete(cliente); }}
-          title="Excluir cliente"
-          className="w-7 h-7 flex items-center justify-center rounded-lg bg-surface border border-border hover:border-red-400/50 hover:text-red-400 text-muted transition-all">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-            <path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
-          </svg>
-        </button>
-      </div>
-
-      <div className="flex items-center gap-3 mb-4 pr-16">
+      <div className="flex items-center gap-3 mb-4">
         <div className={`w-11 h-11 rounded-xl flex items-center justify-center text-xl font-bold flex-shrink-0 ${
           cliente.tipo === "pj" ? "bg-blue-100 text-blue-700" : "bg-gold/10 text-gold"
         }`}>
@@ -135,6 +113,28 @@ function ClienteCard({ cliente, onEdit, onDelete, onClick }: {
             <span>Última mov. {fmtData(cliente.ultima_movimentacao)}</span>
           </p>
         )}
+      </div>
+
+      {/* Rodapé do card — ações */}
+      <div className="mt-4 pt-3 border-t border-border flex items-center justify-end gap-1">
+        <button
+          onClick={e => { e.stopPropagation(); onEdit(cliente); }}
+          title="Editar cliente"
+          className="w-8 h-8 flex items-center justify-center rounded-lg text-muted hover:text-gold hover:bg-gold/10 transition-all">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+          </svg>
+        </button>
+        <button
+          onClick={e => { e.stopPropagation(); onDelete(cliente); }}
+          title="Excluir cliente"
+          className="w-8 h-8 flex items-center justify-center rounded-lg text-muted hover:text-red-400 hover:bg-red-400/10 transition-all">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+            <path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
+          </svg>
+        </button>
       </div>
     </div>
   );
