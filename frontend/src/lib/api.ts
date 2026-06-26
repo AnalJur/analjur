@@ -527,6 +527,8 @@ export const api = {
       req<Prazo>(`/processos/${processoId}/prazos/${prazoId}/reabrir`, { method: "PATCH" }),
     deletar: (processoId: string, prazoId: string) =>
       req<void>(`/processos/${processoId}/prazos/${prazoId}`, { method: "DELETE" }),
+    limparAutomaticos: (processoId: string) =>
+      req<{ removidos: number }>(`/processos/${processoId}/prazos/automaticos`, { method: "DELETE" }),
     calcularVencimento: (body: {
       data_base: string;
       prazo_dias: number;

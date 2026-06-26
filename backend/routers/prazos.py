@@ -197,6 +197,26 @@ async def reabrir_prazo(processo_id: uuid.UUID, prazo_id: uuid.UUID):
     return result.data[0]
 
 
+@router.delete("/automaticos", status_code=200)
+async def limpar_prazos_automaticos(processo_id: uuid.UUID):
+    """Remove todos os prazos gerados automaticamente pela IA neste processo."""
+    sb = get_supabase()
+    result = await sb_run(
+        lambda: sb.table("prazos")
+        .delete()
+        .eq("processo_id", str(processo_id))
+        .like("observacoes", "Detectado automaticamente%")
+        .execute()
+    )
+    removidos = len(result.data or [])
+    if removidos:
+        await audit_svc.registrar(
+            "limpar_automaticos", "prazo", processo_id,
+            dados_depois={"removidos": removidos}, usuario_id=DEFAULT_USER,
+        )
+    return {"removidos": removidos}
+
+
 @router.delete("/{prazo_id}", status_code=204)
 async def deletar_prazo(processo_id: uuid.UUID, prazo_id: uuid.UUID):
     sb = get_supabase()

@@ -3468,6 +3468,7 @@ function AbaPrazos({ processoId }: { processoId: string }) {
   const [reabrindo, setReabrindo] = useState<string | null>(null);
   const [importModal, setImportModal] = useState<ImportItem[] | null>(null);
   const [importando, setImportando] = useState(false);
+  const [limpando, setLimpando] = useState(false);
   const [calcInfo, setCalcInfo] = useState<{ vencimento: string; dias_uteis_restantes: number; status: string } | null>(null);
   const [calcLoading, setCalcLoading] = useState(false);
 
@@ -3610,6 +3611,22 @@ function AbaPrazos({ processoId }: { processoId: string }) {
     }
   }
 
+  async function limparAutomaticos() {
+    const automaticos = prazos.filter(p => p.observacoes?.startsWith("Detectado automaticamente"));
+    if (automaticos.length === 0) { alert("Nenhum prazo automático encontrado."); return; }
+    if (!confirm(`Remover ${automaticos.length} prazo${automaticos.length > 1 ? "s" : ""} gerado${automaticos.length > 1 ? "s" : ""} automaticamente pela IA?`)) return;
+    setLimpando(true);
+    try {
+      const { removidos } = await api.prazos.limparAutomaticos(processoId);
+      setPrazos(prev => prev.filter(p => !p.observacoes?.startsWith("Detectado automaticamente")));
+      alert(`${removidos} prazo${removidos > 1 ? "s" : ""} removido${removidos > 1 ? "s" : ""}.`);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Erro ao limpar prazos");
+    } finally {
+      setLimpando(false);
+    }
+  }
+
   // ── Importar da análise de Próximos Passos / Estado Atual ──────────────────
   async function prepararImport() {
     try {
@@ -3732,6 +3749,11 @@ function AbaPrazos({ processoId }: { processoId: string }) {
             )}
           </div>
           <div className="flex items-center gap-2">
+            {prazos.some(p => p.observacoes?.startsWith("Detectado automaticamente")) && (
+              <Btn onClick={limparAutomaticos} disabled={limpando}>
+                {limpando ? "Limpando…" : "🗑 Limpar automáticos"}
+              </Btn>
+            )}
             <Btn onClick={prepararImport}>Importar da IA</Btn>
             <Btn variant="gold" onClick={abrirNovo}>+ Novo Prazo</Btn>
           </div>
