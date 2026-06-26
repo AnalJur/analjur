@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     # DataJud CNJ — chave pública; pode ser sobrescrita via env DATAJUD_API_KEY
     datajud_api_key: str = "cDZHYzlZa0JadVREZDJCendQbXY6SkJlTzNjLV9TRENyQk1RdnFKZGRQdw=="
 
+    # Tavily — busca de jurisprudência em tempo real (Fase 1)
+    tavily_api_key: str = ""
+
     default_tenant_id: str = "00000000-0000-0000-0000-000000000001"
     default_usuario_id: str = "00000000-0000-0000-0000-000000000002"
 

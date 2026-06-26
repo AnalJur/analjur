@@ -24,11 +24,27 @@ settings = get_settings()
 
 _enc = tiktoken.get_encoding("cl100k_base")
 
-# Claude 3.x suporta até 200K tokens de contexto;
-# usamos 185K como teto seguro (deixa margem pro prompt + resposta).
-MAX_TOKENS_DIRECT  = 185_000
+# ── Limites de contexto ───────────────────────────────────────────────────────
+# Claude suporta até 200K tokens de contexto de entrada.
+MAX_TOKENS_DIRECT  = 185_000   # abaixo disto → estratégia A (direto)
+MAX_TOKENS_SAFE    = 155_000   # orçamento máximo de tokens de contexto (30K de margem)
 PECA_MAX_TOKENS    = 90_000    # máximo de tokens por peça para cronologia
-RESUMO_MAX_TOKENS  = 2_500    # tokens de saída por peça resumida
+RESUMO_MAX_TOKENS  = 2_500     # tokens de saída por peça resumida (fallback estático)
+
+# Limiares para escolha de estratégia
+STRATEGY_B_THRESHOLD = 185_000   # A→B: direto → prioridade inteligente
+STRATEGY_C_THRESHOLD = 500_000   # B→C: prioridade → hierárquico com validação
+
+# Tokens máximos de saída por tipo de análise
+MAX_OUTPUT_TOKENS_MAP: dict[str, int] = {
+    "diagnostico_completo":  8_192,
+    "estrategia_vencedora":  8_192,
+    "sequencia_argumentativa": 8_192,
+    "teses":                 8_192,
+    "analise_provas":        8_192,
+    "jurisprudencia_citada": 8_192,
+}
+DEFAULT_OUTPUT_TOKENS = 8_192
 
 PECAS_PRIORITARIAS = {
     "sentenca", "acordao", "decisao_interlocutoria", "peticao_inicial",
@@ -39,6 +55,29 @@ PECAS_PRIORITARIAS = {
 PECAS_PREMIUM = {
     "sentenca", "acordao", "peticao_inicial", "recurso",
     "embargos_declaracao", "agravo",
+}
+
+# Ordem de relevância para montagem de contexto (menor = mais importante)
+ORDEM_RELEVANCIA: dict[str, int] = {
+    "sentenca": 0, "acordao": 1,
+    "peticao_inicial": 2, "contestacao": 3,
+    "recurso": 4, "embargos_declaracao": 5, "agravo": 6,
+    "decisao_interlocutoria": 7, "replica": 8,
+    "audiencia": 9, "pericia": 10, "despacho": 11,
+    "citacao": 12, "intimacao": 13,
+    "cumprimento_sentenca": 14, "peticao": 15, "outro": 16,
+}
+
+# Tipos de análise que se beneficiam do contexto em estágios
+TIPOS_ESTAGIADOS = {
+    "diagnostico_completo", "estrategia_vencedora",
+    "teses", "analise_provas", "riscos",
+}
+
+# Tipos de análise que injetam jurisprudência em tempo real
+TIPOS_COM_JURISPRUDENCIA = {
+    "diagnostico_completo", "estrategia_vencedora",
+    "teses", "resumo_executivo",
 }
 
 
@@ -323,6 +362,11 @@ INSTRUÇÕES:
 - Aponte questões de ordem pública que o juiz pode conhecer de ofício.
 - Identifique teses não levantadas que poderiam beneficiar o cliente.
 - Diferencie teses processuais de teses de mérito.
+- IMPORTANTE — separe claramente:
+  * jurisprudencia_nos_autos: APENAS o que consta CITADO nos documentos do processo
+  * tendencia_tribunais_conhecimento_ia: o que você sabe do treinamento sobre a tendência atual — \
+    SEMPRE com aviso de que pode estar desatualizado
+  * Se houver "JURISPRUDÊNCIA CONSULTADA EM TEMPO REAL" no contexto, use-a em jurisprudencia_pesquisada
 
 JSON schema:
 {
@@ -333,7 +377,7 @@ JSON schema:
       "fundamento_legal": "string (ex: art. 186 CC/2002; Súmula 385 STJ)",
       "status": "acolhida | pendente | rejeitada | nao_apreciada",
       "forca": "solida | razoavel | fragil",
-      "jurisprudencia_dominante": "string (favoravel | contraria | divergente | sem_precedente)",
+      "jurisprudencia_nos_autos": "string (precedentes CITADOS nos documentos ou 'não citado')",
       "evidencia_no_processo": "string"
     }
   ],
@@ -344,7 +388,7 @@ JSON schema:
       "fundamento_legal": "string",
       "status": "acolhida | pendente | rejeitada | nao_apreciada",
       "forca": "solida | razoavel | fragil",
-      "jurisprudencia_dominante": "string",
+      "jurisprudencia_nos_autos": "string",
       "risco_para_autor": "alto | medio | baixo"
     }
   ],
@@ -364,6 +408,11 @@ JSON schema:
       "risco_para_autor": "alto | medio | baixo"
     }
   ],
+  "tendencia_tribunais_conhecimento_ia": {
+    "aviso": "Baseado no treinamento do modelo (até ago/2025). Verificar antes de citar.",
+    "resumo": "string (tendência atual dos tribunais superiores sobre os pontos principais do caso)"
+  },
+  "jurisprudencia_pesquisada": [],
   "confianca": 0.0
 }""",
     },
@@ -914,6 +963,101 @@ JSON schema:
   "confianca": 0.0
 }""",
     },
+
+    # ── SEQUÊNCIA ARGUMENTATIVA ───────────────────────────────────────────────
+    "sequencia_argumentativa": {
+        "instrucao": """Produza um mapa completo do debate processual: mostre CADA peça em ordem cronológica, \
+o que cada parte argumentou, como os argumentos evoluíram, o que o juiz decidiu sobre cada ponto e o que \
+permanece em aberto.
+
+INSTRUÇÕES CRÍTICAS:
+- Liste CADA petição/manifestação/decisão na ordem em que ocorreu.
+- Para cada peça: identifique os argumentos centrais (não resuma genericamente — aponte a TESE JURÍDICA específica).
+- Mostre o CONTRADITÓRIO: como a parte contrária respondeu a cada argumento.
+- Mapeie o que o juiz acolheu, rejeitou ou deixou sem apreciação de cada pedido.
+- Identifique FALHAS DE CONTRADITÓRIO: argumentos que ficaram sem resposta da outra parte.
+- Identifique INFRINGÊNCIAS: onde uma peça viola norma processual (intempestividade, falta de fundamentação, \
+  extra/ultra petita, cerceamento de defesa, nulidade de citação etc.).
+- Para recursos: identifique o tipo exato (embargos de declaração, agravo de instrumento, apelação, \
+  agravo regimental, REsp, RE) e o fundamento específico.
+- PROVAS: para cada fase, liste quais provas foram produzidas, requeridas ou indeferidas.
+- BASE: use APENAS o que está nos documentos. Fonte obrigatória para cada afirmação.
+
+JSON schema:
+{
+  "sequencia": [
+    {
+      "ordem": 1,
+      "data": "YYYY-MM-DD ou null",
+      "tipo_peca": "string (petição inicial | contestação | réplica | embargos de declaração | apelação | agravo de instrumento | agravo regimental | REsp | RE | decisão interlocutória | sentença | acórdão | memoriais | laudo pericial | auto de audiência | outro)",
+      "autor_peca": "string (quem protocolou/prolatou)",
+      "paginas": "string (ex: pág. 1-40)",
+      "resumo_peca": "string (o que é esta peça em 2-3 frases precisas)",
+      "argumentos_centrais": [
+        {
+          "argumento": "string (tese jurídica específica)",
+          "fundamento_legal": "string (artigo/súmula/precedente citado)",
+          "natureza": "processual | merito | probatório"
+        }
+      ],
+      "pedidos_formulados": ["string — lista de pedidos, se for petição, ou []"],
+      "provas_produzidas_requeridas": [
+        {
+          "prova": "string",
+          "tipo": "documental | testemunhal | pericial | eletrônica | outro",
+          "status": "produzida | requerida | indeferida | deferida_pendente"
+        }
+      ],
+      "resposta_argumentos_anteriores": [
+        {
+          "argumento_rebatido": "string (qual argumento da peça anterior esta peça ataca)",
+          "como_rebateu": "string"
+        }
+      ],
+      "decisao_sobre_esta_peca": {
+        "houve_decisao": true,
+        "resultado": "string ou null (o que o juiz/tribunal decidiu sobre ela)",
+        "pontos_acolhidos": ["string"],
+        "pontos_rejeitados": ["string"],
+        "pontos_sem_apreciacao": ["string"]
+      },
+      "infringencias_identificadas": [
+        {
+          "tipo": "intempestividade | extra_petita | ultra_petita | cerceamento_defesa | nulidade_citacao | falta_fundamentacao | preclusao | outro",
+          "descricao": "string",
+          "fundamento_legal": "string",
+          "gravidade": "insanavel | sanavel",
+          "explorar_como": "string (como essa infringência pode ser usada)"
+        }
+      ],
+      "argumentos_sem_resposta": ["string (argumentos desta peça que a parte contrária não rebateu)"]
+    }
+  ],
+  "balanco_debate": {
+    "argumentos_mais_fortes_autor": ["string"],
+    "argumentos_mais_fortes_reu": ["string"],
+    "pontos_decisivos_sem_resolucao": ["string"],
+    "evolucao_estrategia_autor": "string (como a estratégia do autor evoluiu ao longo do processo)",
+    "evolucao_estrategia_reu": "string"
+  },
+  "mapa_provas": {
+    "provas_produzidas": ["string"],
+    "provas_requeridas_pendentes": ["string"],
+    "provas_indeferidas": ["string (com fundamento do indeferimento)"],
+    "cerceamento_defesa_identificado": ["string"]
+  },
+  "infringencias_normativas": [
+    {
+      "peca": "string (qual peça contém a infringência)",
+      "tipo": "string",
+      "norma_violada": "string (artigo/lei/princípio constitucional violado)",
+      "consequencia_processual": "string",
+      "como_arguir": "string"
+    }
+  ],
+  "confianca": 0.0
+}""",
+    },
 }
 
 
@@ -1028,24 +1172,42 @@ async def _buscar_pecas(
     processo_id: uuid.UUID,
     documento_ids: Optional[list[uuid.UUID]] = None,
 ) -> list[dict]:
+    """Busca paginada — evita estouro do payload de 2MB do Supabase em processos grandes."""
     sb = get_supabase()
-    q = (sb.table("pecas")
-         .select("id,documento_id,tipo_peca,pagina_inicio,pagina_fim,conteudo_texto,confianca_classificacao")
-         .eq("processo_id", str(processo_id))
-         .order("pagina_inicio", desc=False))
-    if documento_ids:
-        ids_str = [str(d) for d in documento_ids]
-        q = q.in_("documento_id", ids_str)
-    result = await sb_run(q.execute)
-    return result.data or []
+    LOTE = 25
+    todas: list[dict] = []
+    offset = 0
+
+    while True:
+        q = (sb.table("pecas")
+             .select("id,documento_id,tipo_peca,pagina_inicio,pagina_fim,conteudo_texto,confianca_classificacao")
+             .eq("processo_id", str(processo_id))
+             .order("pagina_inicio", desc=False)
+             .range(offset, offset + LOTE - 1))
+        if documento_ids:
+            q = q.in_("documento_id", [str(d) for d in documento_ids])
+        result = await sb_run(q.execute)
+        lote = result.data or []
+        todas.extend(lote)
+        if len(lote) < LOTE:
+            break
+        offset += LOTE
+
+    logger.info(f"Peças carregadas: {len(todas)} (paginado)")
+    return todas
 
 
 # ── Montagem de contexto ──────────────────────────────────────────────────────
 
 def _montar_contexto_direto(pecas: list[dict]) -> str:
-    """Concatena todas as peças com cabeçalho. Usado quando cabem no contexto."""
+    """Estratégia A: texto integral de todas as peças. Usado quando cabem no contexto."""
+    # Ordena por relevância jurídica (não por página)
+    ordenadas = sorted(
+        pecas,
+        key=lambda p: (ORDEM_RELEVANCIA.get(p.get("tipo_peca", "outro"), 16), p.get("pagina_inicio", 0))
+    )
     partes = []
-    for p in pecas:
+    for p in ordenadas:
         tipo  = p.get("tipo_peca", "peca").upper()
         pags  = f"pág. {p.get('pagina_inicio')}-{p.get('pagina_fim')}"
         texto = p.get("conteudo_texto") or "(sem texto)"
@@ -1053,21 +1215,113 @@ def _montar_contexto_direto(pecas: list[dict]) -> str:
     return "\n\n".join(partes)
 
 
-def _resumir_peca_sync(peca: dict, client: anthropic.Anthropic) -> str:
-    """Resume uma peça individual usando Haiku (rápido, barato)."""
+def _montar_contexto_prioridade(pecas: list[dict]) -> str:
+    """
+    Estratégia B — Prioridade inteligente (185K-500K tokens totais).
+
+    - Peças prioritárias (sentença, acórdão, inicial, contestação, recursos):
+      texto integral (cap 35K tokens cada; juntas cap 90K).
+    - Peças secundárias: head 50% + tail 50%, limite dinâmico calculado
+      com o orçamento remanescente dividido igualmente.
+    - Valida total antes de retornar; reduz secundárias se necessário.
+    """
+    ordenadas = sorted(
+        pecas,
+        key=lambda p: (ORDEM_RELEVANCIA.get(p.get("tipo_peca", "outro"), 16), p.get("pagina_inicio", 0))
+    )
+    prioritarias = [p for p in ordenadas if p.get("tipo_peca") in PECAS_PRIORITARIAS]
+    secundarias  = [p for p in ordenadas if p.get("tipo_peca") not in PECAS_PRIORITARIAS]
+
+    # ─── 1. Peças prioritárias (texto integral, cap por peça e por conjunto) ───
+    partes_prio: list[str] = []
+    tokens_prio = 0
+    for p in prioritarias:
+        texto = (p.get("conteudo_texto") or "").strip()
+        if not texto:
+            continue
+        tipo = p.get("tipo_peca", "").upper()
+        pags = f"pág. {p.get('pagina_inicio')}-{p.get('pagina_fim')}"
+        toks = _contar_tokens(texto)
+
+        # Limite por peça: 35K tokens
+        if toks > 35_000:
+            enc = _enc.encode(texto)
+            head = _enc.decode(enc[:18_000])
+            tail = _enc.decode(enc[-17_000:])
+            texto = head + "\n\n[... TRECHO CENTRAL OMITIDO — peça muito longa ...]\n\n" + tail
+            toks  = _contar_tokens(texto)
+
+        # Limite do conjunto: 90K
+        if tokens_prio + toks > 90_000:
+            disp = 90_000 - tokens_prio
+            if disp < 2_000:
+                logger.info(f"  Prioridade: pulando {tipo} ({pags}) — orçamento esgotado")
+                continue
+            enc  = _enc.encode(texto)
+            head = _enc.decode(enc[:disp // 2])
+            tail = _enc.decode(enc[-(disp - disp // 2):])
+            texto = head + "\n[...]\n" + tail
+            toks  = _contar_tokens(texto)
+
+        partes_prio.append(f"=== {tipo} — COMPLETO ({pags}) ===\n{texto}")
+        tokens_prio += toks
+
+    # ─── 2. Peças secundárias: limite dinâmico ────────────────────────────────
+    tokens_disponiveis = MAX_TOKENS_SAFE - tokens_prio
+    secs_com_texto = [p for p in secundarias if (p.get("conteudo_texto") or "").strip()]
+    limite_por_sec = max(600, tokens_disponiveis // max(1, len(secs_com_texto)))
+    limite_por_sec = min(limite_por_sec, 3_000)  # não exagera por peça
+
+    partes_sec: list[str] = []
+    tokens_sec  = 0
+    for p in secs_com_texto:
+        if tokens_sec >= tokens_disponiveis:
+            break
+        texto = (p.get("conteudo_texto") or "").strip()
+        tipo  = p.get("tipo_peca", "outro").upper()
+        pags  = f"pág. {p.get('pagina_inicio')}-{p.get('pagina_fim')}"
+        toks  = _contar_tokens(texto)
+
+        if toks <= limite_por_sec:
+            texto_final = texto
+        else:
+            enc   = _enc.encode(texto)
+            head  = _enc.decode(enc[:limite_por_sec // 2])
+            tail  = _enc.decode(enc[-(limite_por_sec - limite_por_sec // 2):])
+            texto_final = head + "\n[...]\n" + tail
+
+        toks_final = _contar_tokens(texto_final)
+        if tokens_sec + toks_final > tokens_disponiveis:
+            break
+
+        partes_sec.append(f"=== {tipo} ({pags}) ===\n{texto_final}")
+        tokens_sec += toks_final
+
+    total = tokens_prio + tokens_sec
+    logger.info(
+        f"Estratégia B: {len(partes_prio)} prio ({tokens_prio:,} tok) + "
+        f"{len(partes_sec)} sec ({tokens_sec:,} tok) = {total:,} tok total"
+    )
+    return "\n\n".join(partes_prio + partes_sec)
+
+
+def _resumir_peca_sync(peca: dict, client: anthropic.Anthropic, max_tokens: int = RESUMO_MAX_TOKENS) -> str:
+    """Resume uma peça individual usando Haiku com limite de tokens dinâmico."""
     texto = peca.get("conteudo_texto") or ""
     tipo  = peca.get("tipo_peca", "peca")
     pags  = f"pág. {peca.get('pagina_inicio')}-{peca.get('pagina_fim')}"
+    max_tok = max(300, min(max_tokens, RESUMO_MAX_TOKENS))
+
     msg = client.messages.create(
         model="claude-haiku-4-5-20251001",
-        max_tokens=RESUMO_MAX_TOKENS,
+        max_tokens=max_tok,
         messages=[{
             "role": "user",
             "content": (
-                f"Resuma esta peça processual ({tipo}, {pags}) preservando TODOS os detalhes importantes: "
-                f"datas (DD/MM/AAAA), valores monetários, nomes das partes e advogados, "
-                f"fundamentos legais citados, decisões, prazos e determinações. "
-                f"Seja extenso o suficiente para que a análise posterior não perca informação crucial.\n\n"
+                f"Resuma esta peça processual ({tipo}, {pags}) em até {max_tok} tokens. "
+                f"Preserve OBRIGATORIAMENTE: datas (DD/MM/AAAA), valores monetários, nomes de partes e "
+                f"advogados, fundamentos legais citados, decisões, prazos e determinações às partes. "
+                f"Seja denso e factual — omita linguagem de praxe.\n\n"
                 f"{texto[:100_000]}"
             ),
         }],
@@ -1077,44 +1331,90 @@ def _resumir_peca_sync(peca: dict, client: anthropic.Anthropic) -> str:
 
 async def _montar_contexto_hierarquico(pecas: list[dict], client: anthropic.Anthropic) -> str:
     """
-    Para documentos que não cabem no contexto direto:
-    - Peças prioritárias: texto completo (se couber) ou resumo longo
-    - Demais peças: resumo detalhado
+    Estratégia C — Hierárquico com validação dupla (>500K tokens totais).
+
+    1. Prioritárias: texto integral (cap 35K each, 90K conjunto) ou resumo Sonnet
+    2. Secundárias: resumo Haiku com limite dinâmico calculado
+    3. VALIDAÇÃO: verifica total de tokens; se > MAX_TOKENS_SAFE, faz 2ª redução
     """
     import asyncio
-    partes = []
-    tokens_usados = 0
 
-    prioritarias = [p for p in pecas if p.get("tipo_peca") in PECAS_PRIORITARIAS]
-    secundarias  = [p for p in pecas if p.get("tipo_peca") not in PECAS_PRIORITARIAS]
+    ordenadas    = sorted(pecas, key=lambda p: (ORDEM_RELEVANCIA.get(p.get("tipo_peca", "outro"), 16), p.get("pagina_inicio", 0)))
+    prioritarias = [p for p in ordenadas if p.get("tipo_peca") in PECAS_PRIORITARIAS and (p.get("conteudo_texto") or "").strip()]
+    secundarias  = [p for p in ordenadas if p.get("tipo_peca") not in PECAS_PRIORITARIAS and (p.get("conteudo_texto") or "").strip()]
 
-    # Peças prioritárias: tenta texto completo
+    loop = asyncio.get_event_loop()
+
+    # ─── 1. Peças prioritárias (texto integral ou resumo Sonnet) ──────────────
+    partes_prio: list[str] = []
+    tokens_prio = 0
     for p in prioritarias:
-        texto = p.get("conteudo_texto") or ""
-        toks  = _contar_tokens(texto)
+        texto = (p.get("conteudo_texto") or "").strip()
         tipo  = p.get("tipo_peca", "peca").upper()
         pags  = f"pág. {p.get('pagina_inicio')}-{p.get('pagina_fim')}"
+        toks  = _contar_tokens(texto)
 
-        # Reserva 30K de margem para o prompt de análise + resposta
-        if tokens_usados + toks <= MAX_TOKENS_DIRECT - 30_000:
-            partes.append(f"=== {tipo} — COMPLETO ({pags}) ===\n{texto}")
-            tokens_usados += toks
-        else:
-            loop = asyncio.get_event_loop()
+        if toks > 35_000:
+            # Peça muito longa: aplica Strategy B style truncation
+            enc  = _enc.encode(texto)
+            head = _enc.decode(enc[:18_000])
+            tail = _enc.decode(enc[-17_000:])
+            texto = head + "\n\n[... TRECHO CENTRAL OMITIDO ...]\n\n" + tail
+            toks  = _contar_tokens(texto)
+
+        if tokens_prio + toks > 90_000:
+            # Orçamento de prioritárias esgotado → resumo desta
             resumo = await loop.run_in_executor(None, functools.partial(_resumir_peca_sync, p, client))
-            partes.append(resumo)
+            toks_res = _contar_tokens(resumo)
+            if tokens_prio + toks_res <= MAX_TOKENS_SAFE - 20_000:
+                partes_prio.append(resumo)
+                tokens_prio += toks_res
+            continue
 
-    # Peças secundárias: sempre resumidas
-    loop = asyncio.get_event_loop()
-    resumos_sec = []
-    for p in secundarias:
-        resumo = await loop.run_in_executor(None, functools.partial(_resumir_peca_sync, p, client))
-        resumos_sec.append(resumo)
+        partes_prio.append(f"=== {tipo} — COMPLETO ({pags}) ===\n{texto}")
+        tokens_prio += toks
 
-    if resumos_sec:
-        partes.append("=== DEMAIS PEÇAS (resumidas) ===\n" + "\n\n".join(resumos_sec))
+    # ─── 2. Secundárias: limite dinâmico + paralelismo ────────────────────────
+    tokens_budget_sec = MAX_TOKENS_SAFE - tokens_prio
+    # Cada resumo não pode ultrapassar o orçamento dividido igualmente
+    max_resumo = max(600, min(2_000, tokens_budget_sec // max(1, len(secundarias))))
+    logger.info(f"Hierárquico: {len(secundarias)} secundárias, {max_resumo} tok/resumo")
 
-    return "\n\n".join(partes)
+    sem = asyncio.Semaphore(5)
+
+    async def resumir_uma(idx: int, peca: dict) -> str:
+        async with sem:
+            return await loop.run_in_executor(
+                None,
+                functools.partial(_resumir_peca_sync, peca, client, max_resumo),
+            )
+
+    tarefas    = [resumir_uma(i, p) for i, p in enumerate(secundarias, 1)]
+    resumos_sec: list[str] = []
+    for r in await asyncio.gather(*tarefas, return_exceptions=True):
+        if isinstance(r, Exception):
+            logger.warning(f"Resumo falhou: {r}")
+        else:
+            resumos_sec.append(r)
+
+    # ─── 3. Validação: verifica total real ────────────────────────────────────
+    contexto = "\n\n".join(partes_prio + resumos_sec)
+    total = _contar_tokens(contexto)
+    logger.info(f"Hierárquico pré-validação: {total:,} tokens (limite {MAX_TOKENS_SAFE:,})")
+
+    if total > MAX_TOKENS_SAFE:
+        logger.warning("Hierárquico: total excede limite — aplicando 2ª redução")
+        # Corta cada resumo secundário a 60% do tamanho atual
+        resumos_reduzidos = []
+        for r in resumos_sec:
+            enc = _enc.encode(r)
+            limite = int(len(enc) * 0.6)
+            resumos_reduzidos.append(_enc.decode(enc[:limite]) + " [...]")
+        contexto = "\n\n".join(partes_prio + resumos_reduzidos)
+        total = _contar_tokens(contexto)
+        logger.info(f"Hierárquico pós-2ª redução: {total:,} tokens")
+
+    return contexto
 
 
 # ── Cronologia por peça (piece-anchored) ─────────────────────────────────────
@@ -1358,6 +1658,140 @@ async def _descricao_por_peca(
     return docs
 
 
+# ── Contexto em estágios ──────────────────────────────────────────────────────
+
+async def _buscar_contexto_estagiado(processo_id: uuid.UUID) -> str:
+    """
+    Busca análises já geradas (descricao_documentos + cronologia) para usá-las
+    como contexto estruturado em vez de reprocessar o texto bruto.
+
+    Qualidade superior: o modelo recebe dados já processados peça-a-peça,
+    não texto comprimido. Só ativa quando ambas as análises existem.
+    """
+    sb = get_supabase()
+    result = await sb_run(
+        lambda: sb.table("analises")
+        .select("tipo, conteudo_json, created_at")
+        .eq("processo_id", str(processo_id))
+        .in_("tipo", ["descricao_documentos", "cronologia", "estado_atual"])
+        .order("created_at", desc=True)
+        .limit(5)
+        .execute()
+    )
+    analises = result.data or []
+    if not analises:
+        return ""
+
+    # Agrupa por tipo (pega a mais recente de cada)
+    por_tipo: dict[str, dict] = {}
+    for a in analises:
+        t = a.get("tipo", "")
+        if t not in por_tipo:
+            por_tipo[t] = a
+
+    if "descricao_documentos" not in por_tipo:
+        return ""   # sem descrição peça-a-peça, não vale montar contexto parcial
+
+    blocos: list[str] = []
+
+    # ── Descrição das peças ──────────────────────────────────────────────────
+    desc = por_tipo["descricao_documentos"].get("conteudo_json", {})
+    docs = desc.get("documentos", [])
+    if docs:
+        linhas_desc = ["## DESCRIÇÃO DETALHADA DE CADA PEÇA DO PROCESSO\n"]
+        for d in docs:
+            tipo  = d.get("tipo_peca", "").upper()
+            pags  = d.get("paginas", "")
+            data  = d.get("data_documento") or ""
+            autor = d.get("autor") or ""
+            desc_fiel = d.get("descricao_fiel") or ""
+            dispositivo = d.get("transcricao_dispositivo") or ""
+            pedidos = d.get("pedidos") or []
+            fundamentos = d.get("fundamentos_legais_citados") or []
+            valores = d.get("valores_mencionados") or []
+
+            bloco = [f"### {tipo} ({pags})"]
+            if data:   bloco.append(f"Data: {data}")
+            if autor:  bloco.append(f"Autor/Prolator: {autor}")
+            if desc_fiel: bloco.append(f"Descrição: {desc_fiel}")
+            if dispositivo: bloco.append(f"DISPOSITIVO LITERAL: {dispositivo}")
+            if pedidos:  bloco.append(f"Pedidos: {'; '.join(pedidos)}")
+            if fundamentos: bloco.append(f"Fundamentos citados: {'; '.join(fundamentos[:10])}")
+            if valores: bloco.append(f"Valores: {'; '.join(valores[:5])}")
+            linhas_desc.append("\n".join(bloco))
+
+        blocos.append("\n\n".join(linhas_desc))
+
+    # ── Cronologia ────────────────────────────────────────────────────────────
+    if "cronologia" in por_tipo:
+        cron = por_tipo["cronologia"].get("conteudo_json", {})
+        eventos = cron.get("eventos", [])
+        if eventos:
+            linhas_cron = ["## CRONOLOGIA PROCESSUAL (verificada e ordenada)\n"]
+            for ev in eventos[:150]:   # limita para não explodir contexto
+                data = ev.get("data") or "s/data"
+                tipo = ev.get("tipo", "outro")
+                desc = ev.get("descricao") or ""
+                rel  = ev.get("relevancia", "media")
+                linhas_cron.append(f"[{data}] {tipo.upper()} ({rel}): {desc}")
+            blocos.append("\n".join(linhas_cron))
+
+    if not blocos:
+        return ""
+
+    resultado = "\n\n".join(blocos)
+    tok_count = _contar_tokens(resultado)
+    logger.info(f"Contexto em estágios: {tok_count:,} tokens ({len(docs)} peças + cronologia)")
+    return resultado
+
+
+async def _extrair_teses_para_busca(pecas: list[dict], area: str) -> list[str]:
+    """
+    Extrai rapidamente as principais teses jurídicas do processo
+    para alimentar a busca de jurisprudência em tempo real.
+    Usa Haiku para custo mínimo.
+    """
+    # Pega apenas a petição inicial e a contestação para identificar teses
+    pecas_alvo = [
+        p for p in pecas
+        if p.get("tipo_peca") in ("peticao_inicial", "contestacao", "recurso", "sentenca")
+        and (p.get("conteudo_texto") or "").strip()
+    ][:3]
+
+    if not pecas_alvo:
+        return []
+
+    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    textos = []
+    for p in pecas_alvo:
+        tipo  = p.get("tipo_peca", "").upper()
+        texto = (p.get("conteudo_texto") or "")[:8_000]
+        textos.append(f"[{tipo}]\n{texto}")
+
+    try:
+        msg = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=512,
+            messages=[{
+                "role": "user",
+                "content": (
+                    "Identifique as 3 PRINCIPAIS TESES JURÍDICAS deste processo (não fatos — teses legais). "
+                    "Retorne SOMENTE um JSON: {\"teses\": [\"tese 1\", \"tese 2\", \"tese 3\"]}. "
+                    "Cada tese deve ser curta (máx 15 palavras) e mencionar o instituto jurídico.\n\n"
+                    + "\n\n".join(textos)
+                ),
+            }],
+        )
+        raw = msg.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1].rsplit("```", 1)[0]
+        data = json.loads(raw)
+        return data.get("teses", [])[:3]
+    except Exception as e:
+        logger.warning(f"Extração de teses para busca falhou: {e}")
+        return []
+
+
 # ── Wrapper assíncrono para Claude ────────────────────────────────────────────
 
 async def _claude_async(client: anthropic.Anthropic, **kwargs) -> anthropic.types.Message:
@@ -1491,25 +1925,82 @@ async def gerar_analise(
                 }
 
     else:
-        # Fluxo normal: direto ou hierárquico
-        if total_tokens <= MAX_TOKENS_DIRECT:
-            contexto   = _montar_contexto_direto(pecas)
-            estrategia = "direto"
+        # ── Escolha de estratégia de contexto ────────────────────────────────
+        contexto_estagiado = ""
+        usou_estagios      = False
+
+        # PRIORIDADE 1: Contexto em estágios (máxima qualidade)
+        # Só ativado para análises complexas quando descricao_documentos já existe
+        if tipo in TIPOS_ESTAGIADOS and not documento_ids:
+            contexto_estagiado = await _buscar_contexto_estagiado(processo_id)
+            if contexto_estagiado:
+                usou_estagios = True
+                estrategia    = "estagiado"
+                logger.info(f"Usando contexto em estágios para '{tipo}'")
+
+        if not usou_estagios:
+            # PRIORIDADE 2: 3 estratégias baseadas em volume de tokens
+            if total_tokens <= STRATEGY_B_THRESHOLD:
+                contexto   = _montar_contexto_direto(pecas)
+                estrategia = "direto"
+                logger.info(f"Estratégia A (direto): {total_tokens:,} tokens")
+
+            elif total_tokens <= STRATEGY_C_THRESHOLD:
+                contexto   = _montar_contexto_prioridade(pecas)
+                estrategia = "prioridade_inteligente"
+                logger.info(f"Estratégia B (prioridade): {total_tokens:,} tokens")
+
+            else:
+                logger.info(f"Estratégia C (hierárquico): {total_tokens:,} tokens")
+                contexto   = await _montar_contexto_hierarquico(pecas, client)
+                estrategia = "hierarquico_validado"
+
+        # ── Jurisprudência em tempo real (Fase 1) ─────────────────────────────
+        juri_resultados: list[dict] = []
+        juri_texto = ""
+        if tipo in TIPOS_COM_JURISPRUDENCIA and settings.tavily_api_key:
+            try:
+                from . import jurisprudencia_svc
+                teses_busca = await _extrair_teses_para_busca(pecas, tipo_causa_detectado or "")
+                if teses_busca:
+                    juri_resultados = await jurisprudencia_svc.buscar_jurisprudencia(
+                        teses_busca, area=tipo_causa_detectado or "", max_por_tese=3
+                    )
+                    juri_texto = jurisprudencia_svc.formatar_para_prompt(juri_resultados)
+            except Exception as e:
+                logger.warning(f"Busca jurisprudência falhou (não bloqueia): {e}")
+
+        # ── Monta user_content ────────────────────────────────────────────────
+        if usou_estagios:
+            user_content = (
+                "## CONTEXTO DO PROCESSO (análise prévia peça-a-peça)\n\n"
+                + contexto_estagiado
+                + "\n\n## DOCUMENTOS ORIGINAIS — PEÇAS PRIORITÁRIAS (texto integral)\n\n"
+                + _montar_contexto_direto([
+                    p for p in pecas
+                    if p.get("tipo_peca") in PECAS_PRIORITARIAS
+                    and (p.get("conteudo_texto") or "").strip()
+                ])
+            )
         else:
-            logger.info("Documento grande — sumarização hierárquica")
-            contexto   = await _montar_contexto_hierarquico(pecas, client)
-            estrategia = "hierarquico"
+            user_content = f"## DOCUMENTOS DO PROCESSO\n\n{contexto}"
 
-        user_content  = f"DOCUMENTOS DO PROCESSO:\n\n{contexto}"
+        if juri_texto:
+            user_content += juri_texto
+
         if contexto_extra:
-            user_content += f"\n\nINSTRUÇÕES ADICIONAIS:\n{contexto_extra}"
-        user_content += f"\n\nTAREFA:\n{cfg['instrucao']}"
+            user_content += f"\n\n## INSTRUÇÕES ADICIONAIS\n{contexto_extra}"
 
-        logger.info(f"Gerando análise '{tipo}' via {estrategia}")
+        user_content += f"\n\n## TAREFA\n{cfg['instrucao']}"
+
+        # ── Tokens de saída dinâmicos por tipo ───────────────────────────────
+        max_output = MAX_OUTPUT_TOKENS_MAP.get(tipo, DEFAULT_OUTPUT_TOKENS)
+
+        logger.info(f"Gerando análise '{tipo}' via '{estrategia}' — max_output={max_output}")
         msg = await _claude_async(
             client,
             model=settings.llm_model,
-            max_tokens=8192,
+            max_tokens=max_output,
             system=system_prompt,
             messages=[{"role": "user", "content": user_content}],
         )
@@ -1522,6 +2013,23 @@ async def gerar_analise(
             conteudo_json = json.loads(raw)
         except json.JSONDecodeError:
             conteudo_json = {"raw": raw, "parse_error": True}
+
+        # ── Enriquece resultado com jurisprudência pesquisada ─────────────────
+        if juri_resultados and isinstance(conteudo_json, dict):
+            from . import jurisprudencia_svc
+            conteudo_json["jurisprudencia_pesquisada"] = (
+                jurisprudencia_svc.formatar_para_json(juri_resultados)
+            )
+
+        # ── Registra estratégia usada ─────────────────────────────────────────
+        if isinstance(conteudo_json, dict):
+            conteudo_json["_meta"] = {
+                "estrategia": estrategia,
+                "total_pecas": len(pecas),
+                "total_tokens_entrada": total_tokens,
+                "usou_estagios": usou_estagios,
+                "juri_resultados": len(juri_resultados),
+            }
 
     confianca = float(conteudo_json.get("confianca", 0.7))
 
@@ -1698,6 +2206,19 @@ _PASSOS_STREAM: dict[str, list[tuple[str, int]]] = {
         ("Avaliando abertura para acordo…",            84),
         ("Identificando armadilhas críticas…",         90),
         ("Salvando estratégia…",                       95),
+    ],
+    "sequencia_argumentativa": [
+        ("Carregando peças do processo…",              5),
+        ("Identificando sequência de petições…",      15),
+        ("Mapeando argumentos da petição inicial…",   25),
+        ("Mapeando defesa e contestação…",            35),
+        ("Analisando réplicas e manifestações…",      45),
+        ("Mapeando recursos (embargos, agravo, apelação)…", 55),
+        ("Identificando provas produzidas…",          65),
+        ("Detectando infringências normativas…",      75),
+        ("Analisando falhas de contraditório…",       83),
+        ("Consolidando mapa do debate…",              91),
+        ("Salvando análise…",                         95),
     ],
 }
 
