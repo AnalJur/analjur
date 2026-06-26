@@ -3469,6 +3469,8 @@ function AbaPrazos({ processoId }: { processoId: string }) {
   const [importModal, setImportModal] = useState<ImportItem[] | null>(null);
   const [importando, setImportando] = useState(false);
   const [limpando, setLimpando] = useState(false);
+  const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
+  const [deletandoVarios, setDeletandoVarios] = useState(false);
   const [calcInfo, setCalcInfo] = useState<{ vencimento: string; dias_uteis_restantes: number; status: string } | null>(null);
   const [calcLoading, setCalcLoading] = useState(false);
 
@@ -3611,6 +3613,37 @@ function AbaPrazos({ processoId }: { processoId: string }) {
     }
   }
 
+  function toggleSelecionado(id: string) {
+    setSelecionados(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  function toggleTodos() {
+    if (selecionados.size === sorted.length) {
+      setSelecionados(new Set());
+    } else {
+      setSelecionados(new Set(sorted.map(p => p.id)));
+    }
+  }
+
+  async function deletarSelecionados() {
+    if (selecionados.size === 0) return;
+    if (!confirm(`Excluir ${selecionados.size} prazo${selecionados.size > 1 ? "s" : ""} selecionado${selecionados.size > 1 ? "s" : ""}?`)) return;
+    setDeletandoVarios(true);
+    try {
+      await Promise.all([...selecionados].map(id => api.prazos.deletar(processoId, id)));
+      setPrazos(prev => prev.filter(p => !selecionados.has(p.id)));
+      setSelecionados(new Set());
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Erro ao excluir");
+    } finally {
+      setDeletandoVarios(false);
+    }
+  }
+
   async function limparAutomaticos() {
     const automaticos = prazos.filter(p => p.observacoes?.startsWith("Detectado automaticamente"));
     if (automaticos.length === 0) { alert("Nenhum prazo automático encontrado."); return; }
@@ -3749,19 +3782,43 @@ function AbaPrazos({ processoId }: { processoId: string }) {
             )}
           </div>
           <div className="flex items-center gap-2">
-            {prazos.some(p => p.observacoes?.startsWith("Detectado automaticamente")) && (
-              <Btn onClick={limparAutomaticos} disabled={limpando}>
-                {limpando ? "Limpando…" : "🗑 Limpar automáticos"}
-              </Btn>
+            {selecionados.size > 0 ? (
+              <>
+                <span className="text-xs text-muted">{selecionados.size} selecionado{selecionados.size > 1 ? "s" : ""}</span>
+                <Btn variant="danger" onClick={deletarSelecionados} disabled={deletandoVarios}>
+                  {deletandoVarios ? "Excluindo…" : `Excluir (${selecionados.size})`}
+                </Btn>
+                <Btn onClick={() => setSelecionados(new Set())}>Cancelar</Btn>
+              </>
+            ) : (
+              <>
+                {prazos.some(p => p.observacoes?.startsWith("Detectado automaticamente")) && (
+                  <Btn onClick={limparAutomaticos} disabled={limpando}>
+                    {limpando ? "Limpando…" : "🗑 Limpar automáticos"}
+                  </Btn>
+                )}
+                <Btn onClick={prepararImport}>Importar da IA</Btn>
+                <Btn variant="gold" onClick={abrirNovo}>+ Novo Prazo</Btn>
+              </>
             )}
-            <Btn onClick={prepararImport}>Importar da IA</Btn>
-            <Btn variant="gold" onClick={abrirNovo}>+ Novo Prazo</Btn>
           </div>
         </div>
 
         {loading && <div className="flex justify-center py-8"><Spinner /></div>}
 
         {/* Lista de prazos */}
+        {sorted.length > 0 && (
+          <div className="flex items-center gap-2 pb-1">
+            <input
+              type="checkbox"
+              checked={selecionados.size === sorted.length && sorted.length > 0}
+              onChange={toggleTodos}
+              className="w-4 h-4 accent-gold cursor-pointer"
+              title="Selecionar todos"
+            />
+            <span className="text-xs text-muted">Selecionar todos</span>
+          </div>
+        )}
         <div className="space-y-3">
           {sorted.map(p => {
             const st = statusEfetivo(p);
@@ -3769,12 +3826,21 @@ function AbaPrazos({ processoId }: { processoId: string }) {
             const dias = diasRestantes(p.vencimento);
             const isCumprido = st === "cumprido" || st === "cancelado";
             const isFinished = isCumprido || st === "suspendo";
+            const isSel = selecionados.has(p.id);
 
             return (
               <div key={p.id}
-                className={`bg-bg rounded-xl border-l-4 border border-border ${style.border} shadow-sm transition-all ${isCumprido ? "opacity-60" : ""}`}>
+                className={`bg-bg rounded-xl border-l-4 border ${isSel ? "border-gold/60 bg-gold/5" : "border-border"} ${style.border} shadow-sm transition-all ${isCumprido ? "opacity-60" : ""}`}>
                 <div className="p-4">
-                  <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      checked={isSel}
+                      onChange={() => toggleSelecionado(p.id)}
+                      onClick={e => e.stopPropagation()}
+                      className="w-4 h-4 mt-0.5 accent-gold cursor-pointer flex-shrink-0"
+                    />
+                  <div className="flex-1 flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
                       {/* Título + badges */}
                       <div className="flex items-center gap-2 flex-wrap">
@@ -3849,6 +3915,7 @@ function AbaPrazos({ processoId }: { processoId: string }) {
                         {deletando === p.id ? "…" : "Excluir"}
                       </Btn>
                     </div>
+                  </div>
                   </div>
                 </div>
               </div>
