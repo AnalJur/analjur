@@ -64,12 +64,38 @@ async def criar_cliente(body: ClienteCreate):
 @router.get("/{cliente_id}")
 async def obter_cliente(cliente_id: uuid.UUID):
     sb = get_supabase()
+
+    # Tenta pela view com aggregates
     result = await sb_run(
         lambda: sb.table("v_clientes").select("*").eq("id", str(cliente_id)).limit(1).execute()
     )
-    if not result.data:
+    if result.data:
+        return result.data[0]
+
+    # Fallback: tabela direta + calcula aggregates manualmente
+    raw = await sb_run(
+        lambda: sb.table("clientes").select("*").eq("id", str(cliente_id)).limit(1).execute()
+    )
+    if not raw.data:
         raise HTTPException(404, "Cliente não encontrado")
-    return result.data[0]
+
+    c = raw.data[0]
+    procs = await sb_run(
+        lambda: sb.table("processos")
+        .select("id,status,updated_at")
+        .eq("cliente_id", str(cliente_id))
+        .execute()
+    )
+    ps = procs.data or []
+    ativos = sum(1 for p in ps if p.get("status") == "ativo")
+    ultima = max((p["updated_at"] for p in ps), default=None)
+    return {
+        **c,
+        "total_processos": len(ps),
+        "processos_ativos": ativos,
+        "ultima_movimentacao": ultima,
+        "cliente_nome": c.get("nome"),
+    }
 
 
 @router.patch("/{cliente_id}")
