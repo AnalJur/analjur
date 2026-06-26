@@ -125,14 +125,90 @@ async def deletar_cliente(cliente_id: uuid.UUID):
 @router.get("/{cliente_id}/processos")
 async def processos_do_cliente(cliente_id: uuid.UUID):
     sb = get_supabase()
-    result = await sb_run(
-        lambda: sb.table("v_processos")
+    # Tenta v_processos (tem agregados); v_processos pode não ter cliente_id se criada antes da migration
+    try:
+        view = await sb_run(
+            lambda: sb.table("v_processos")
+            .select("*")
+            .eq("cliente_id", str(cliente_id))
+            .order("updated_at", desc=True)
+            .execute()
+        )
+        if view.data:
+            return view.data
+    except Exception:
+        pass
+    # Fallback: tabela direta
+    raw = await sb_run(
+        lambda: sb.table("processos")
         .select("*")
         .eq("cliente_id", str(cliente_id))
         .order("updated_at", desc=True)
         .execute()
     )
-    return result.data or []
+    return raw.data or []
+
+
+@router.get("/{cliente_id}/resumo")
+async def resumo_cliente(cliente_id: uuid.UUID):
+    """Retorna horas trabalhadas e resumo financeiro do cliente."""
+    sb = get_supabase()
+
+    # IDs dos processos do cliente
+    procs = await sb_run(
+        lambda: sb.table("processos").select("id").eq("cliente_id", str(cliente_id)).execute()
+    )
+    proc_ids = [p["id"] for p in (procs.data or [])]
+
+    total_horas = 0.0
+    total_honorarios = 0.0
+    total_recebido = 0.0
+    total_pendente = 0.0
+
+    if proc_ids:
+        # Horas de timesheet
+        try:
+            ts = await sb_run(
+                lambda: sb.table("timesheet").select("duracao_min").in_("processo_id", proc_ids).execute()
+            )
+            total_horas = round(sum(r.get("duracao_min", 0) for r in (ts.data or [])) / 60.0, 1)
+        except Exception:
+            pass
+
+    # Honorários por cliente
+    try:
+        hon = await sb_run(
+            lambda: sb.table("honorarios")
+            .select("id, valor_total")
+            .eq("cliente_id", str(cliente_id))
+            .execute()
+        )
+        for h in (hon.data or []):
+            total_honorarios += h.get("valor_total", 0) or 0
+
+        hon_ids = [h["id"] for h in (hon.data or [])]
+        if hon_ids:
+            parc = await sb_run(
+                lambda: sb.table("parcelas_honorario")
+                .select("valor, status")
+                .in_("honorario_id", hon_ids)
+                .execute()
+            )
+            for p in (parc.data or []):
+                v = p.get("valor", 0) or 0
+                if p.get("status") == "pago":
+                    total_recebido += v
+                elif p.get("status") in ("pendente", "vencido"):
+                    total_pendente += v
+    except Exception:
+        pass
+
+    return {
+        "total_horas": total_horas,
+        "total_honorarios": round(total_honorarios, 2),
+        "total_recebido": round(total_recebido, 2),
+        "total_pendente": round(total_pendente, 2),
+    }
 
 
 @router.patch("/{cliente_id}/vincular-processo/{processo_id}", status_code=200)

@@ -666,6 +666,12 @@ export const api = {
       req<Cliente>(`/clientes/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
     deletar: (id: string) => req<void>(`/clientes/${id}`, { method: "DELETE" }),
     processos: (id: string) => req<Processo[]>(`/clientes/${id}/processos`),
+    resumo: (id: string) => req<{
+      total_horas: number;
+      total_honorarios: number;
+      total_recebido: number;
+      total_pendente: number;
+    }>(`/clientes/${id}/resumo`),
     vincularProcesso: (clienteId: string, processoId: string) =>
       req<{ ok: boolean }>(`/clientes/${clienteId}/vincular-processo/${processoId}`, { method: "PATCH" }),
     desvincularProcesso: (clienteId: string, processoId: string) =>

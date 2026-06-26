@@ -239,14 +239,19 @@ export default function ClienteDetalhe({ params }: { params: Promise<{ id: strin
   const [loading, setLoading]     = useState(true);
   const [modalVinc, setModalVinc] = useState(false);
   const [filtro, setFiltro]       = useState<"todos" | "ativo" | "encerrado">("todos");
+  const [resumo, setResumo]       = useState<{
+    total_horas: number; total_honorarios: number;
+    total_recebido: number; total_pendente: number;
+  } | null>(null);
 
   const carregar = useCallback(async () => {
     setLoading(true);
     try {
       const c = await api.clientes.obter(id);
       setCliente(c);
-      // Carrega processos separadamente para não bloquear exibição do cliente
+      // Carrega em paralelo sem bloquear exibição
       api.clientes.processos(id).then(setProcessos).catch(() => setProcessos([]));
+      api.clientes.resumo(id).then(setResumo).catch(() => null);
     } catch {
       setCliente(null);
     } finally { setLoading(false); }
@@ -360,6 +365,39 @@ export default function ClienteDetalhe({ params }: { params: Promise<{ id: strin
             </div>
 
             <InfoCliente cliente={cliente} />
+
+            {/* Horas & Financeiro */}
+            {resumo && (
+              <div className="bg-bg border border-border rounded-2xl p-4 space-y-3">
+                <p className="text-xs font-semibold text-muted uppercase tracking-wide">Financeiro</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-surface rounded-xl p-3 text-center">
+                    <p className="text-lg font-bold text-text-main">{resumo.total_horas}h</p>
+                    <p className="text-xs text-muted mt-0.5">Horas</p>
+                  </div>
+                  <div className="bg-surface rounded-xl p-3 text-center">
+                    <p className="text-lg font-bold text-text-main">
+                      {resumo.total_honorarios.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                    </p>
+                    <p className="text-xs text-muted mt-0.5">Contratado</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-center">
+                    <p className="text-sm font-bold text-green-700">
+                      {resumo.total_recebido.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                    </p>
+                    <p className="text-xs text-green-600 mt-0.5">Recebido</p>
+                  </div>
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-center">
+                    <p className="text-sm font-bold text-amber-700">
+                      {resumo.total_pendente.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                    </p>
+                    <p className="text-xs text-amber-600 mt-0.5">Pendente</p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Últ. movimentação */}
             {cliente.ultima_movimentacao && (
