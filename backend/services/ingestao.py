@@ -329,15 +329,16 @@ async def processar_conteudo(
         segmentos = segmentar_paginas(paginas)
         logger.info(f"Segmentação: {len(segmentos)} peça(s) identificada(s)")
 
-        # Carrega o número CNJ do processo para detectar peças de outros processos
+        # Carrega info do processo (CNJ + status) para contexto de segmentação e prazos
         proc_info = await sb_run(
             lambda: sb.table("processos")
-            .select("numero_cnj")
+            .select("numero_cnj, status")
             .eq("id", str(processo_id))
             .limit(1)
             .execute()
         )
         numero_cnj_proc = (proc_info.data[0].get("numero_cnj") or "") if proc_info.data else ""
+        processo_status = (proc_info.data[0].get("status") or "ativo") if proc_info.data else "ativo"
         # Extrai apenas os dígitos do CNJ para comparação flexível
         cnj_digits = re.sub(r"\D", "", numero_cnj_proc) if numero_cnj_proc else ""
 
@@ -411,6 +412,7 @@ async def processar_conteudo(
                     tipo_peca=row["tipo_peca"],
                     texto=row.get("conteudo_texto", ""),
                     data_documento=None,  # será estimada em prazo_auto
+                    processo_status=processo_status,
                 )
             )
         if tarefas_prazo:

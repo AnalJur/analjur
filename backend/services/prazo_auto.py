@@ -42,21 +42,34 @@ PECAS_COM_PRAZOS = {
 _PROMPT = """\
 Você é um assistente jurídico especializado em prazos processuais brasileiros.
 
-Analise o texto abaixo (peça processual do tipo: {tipo_peca}) e extraia TODOS os \
-prazos mencionados — determinações judiciais, prazos recursais, prazos para manifestação, \
-prazos para cumprimento de diligência etc.
+CONTEXTO DO PROCESSO:
+- Tipo da peça analisada: {tipo_peca}
+- Status atual do processo: {processo_status}
+- Fase atual: {fase_processo}
 
-Para cada prazo encontrado, extraia:
-- titulo: descrição curta (ex: "Manifestação sobre laudo pericial")
+REGRAS CRÍTICAS DE FILTRAGEM (siga à risca):
+1. Se o processo está ENCERRADO ou ARQUIVADO → retorne lista vazia, não há prazos ativos.
+2. Se o tipo da peça é "sentenca" ou "acordao":
+   - Extraia APENAS prazos recursais: embargos de declaração, apelação, recurso especial/extraordinário.
+   - NÃO extraia prazos de produção de provas, manifestação sobre laudo, oitiva de testemunhas
+     ou qualquer diligência instrutória — esses prazos já estão extintos após a sentença.
+3. Se a peça MENCIONA prazos passados (ex: "prazo de 15 dias que já correu") → ignore.
+4. Extraia apenas prazos que ainda PRECISAM SER CUMPRIDOS a partir desta peça.
+
+Para cada prazo válido, extraia:
+- titulo: descrição curta (ex: "Embargos de declaração")
 - descricao: trecho literal do texto que menciona o prazo (máx. 200 chars)
-- fundamento_legal: artigo/súmula/dispositivo que fundamenta o prazo (se mencionado)
-- prazo_dias: número de dias (inteiro; null se não mencionar número)
-- tipo_contagem: "uteis" se mencionar dias úteis; "corridos" se mencionar dias corridos ou apenas "dias"; "meses" se mencionar meses
-- data_base_texto: data a partir da qual o prazo corre, conforme o texto (ex: "data da publicação", "data da intimação") — ou null
-- urgencia: "critico" | "alto" | "normal" (critico = prazo recursal ou prescricional; alto = manifestação sobre prova/decisão; normal = demais)
-- responsavel_hint: de quem é o prazo (ex: "autor", "réu", "ambas as partes", "perito") — ou null
+- fundamento_legal: artigo/súmula/dispositivo (se mencionado)
+- prazo_dias: número de dias (inteiro; null se não mencionar)
+- tipo_contagem: "uteis" | "corridos" | "meses"
+- data_base_texto: data a partir da qual o prazo corre (ou null)
+- urgencia: "critico" | "alto" | "normal"
+  - critico = prazo recursal (embargos, apelação, REsp, RE, agravo) ou prescricional
+  - alto = manifestação sobre decisão interlocutória, contestação, réplica
+  - normal = demais
+- responsavel_hint: de quem é o prazo (ex: "autor", "réu", "ambas as partes") — ou null
 
-Se não houver nenhum prazo, retorne lista vazia.
+Se não houver nenhum prazo válido, retorne lista vazia.
 
 Retorne APENAS um JSON válido, sem texto adicional:
 {{
@@ -83,12 +96,24 @@ def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _fase_processo(status: str, tipo_peca: str) -> str:
+    """Determina a fase processual para contextualizar o prompt."""
+    if status in ("encerrado", "arquivado"):
+        return "ENCERRADO — nenhum prazo deve ser gerado"
+    if tipo_peca in ("sentenca", "acordao"):
+        return "pós-sentença — apenas prazos recursais são válidos"
+    if tipo_peca in ("despacho", "decisao_interlocutoria"):
+        return "instrução/deliberação — prazos de diligência e manifestação são válidos"
+    return "em curso"
+
+
 async def extrair_e_criar_prazos(
     processo_id: uuid.UUID,
     peca_id: str,
     tipo_peca: str,
     texto: str,
     data_documento: Optional[str] = None,
+    processo_status: str = "ativo",
 ) -> int:
     """
     Extrai prazos do texto da peça e cria registros na tabela `prazos`.
@@ -96,11 +121,18 @@ async def extrair_e_criar_prazos(
 
     `data_documento` é a data em que a peça foi produzida (YYYY-MM-DD), usada como
     data_base para calcular vencimentos quando a peça não especifica outra data.
+    `processo_status` é usado para filtrar prazos irrelevantes (ex: processo encerrado).
     """
     if tipo_peca not in PECAS_COM_PRAZOS:
         return 0
 
+    # Processos encerrados/arquivados não geram novos prazos
+    if processo_status in ("encerrado", "arquivado"):
+        logger.info(f"prazo_auto: processo {processo_id} está {processo_status}, ignorando extração de prazos")
+        return 0
+
     texto_trunc = texto[:4_000]
+    fase = _fase_processo(processo_status, tipo_peca)
 
     try:
         client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
@@ -115,7 +147,12 @@ async def extrair_e_criar_prazos(
                 max_tokens=1_024,
                 messages=[{
                     "role": "user",
-                    "content": _PROMPT.format(tipo_peca=tipo_peca, texto=texto_trunc),
+                    "content": _PROMPT.format(
+                        tipo_peca=tipo_peca,
+                        processo_status=processo_status,
+                        fase_processo=fase,
+                        texto=texto_trunc,
+                    ),
                 }],
             ),
         )
