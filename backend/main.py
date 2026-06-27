@@ -73,6 +73,30 @@ async def health():
     return {"status": "ok", "version": "3.0.0", "engine": "claude-direct"}
 
 
+@app.get("/health/tavily")
+async def health_tavily():
+    """Verifica se a integração com Tavily está ativa e funcional."""
+    from .config import get_settings
+    from .services import jurisprudencia_svc
+
+    cfg = get_settings()
+    if not cfg.tavily_api_key:
+        return {"status": "desativado", "motivo": "TAVILY_API_KEY não configurada"}
+
+    try:
+        resultados = await jurisprudencia_svc.buscar_jurisprudencia(
+            teses=["responsabilidade civil dano moral"], area="civil", max_por_tese=1
+        )
+        return {
+            "status": "ok",
+            "configurada": True,
+            "teste_resultados": len(resultados),
+            "exemplo": resultados[0]["titulo"] if resultados else None,
+        }
+    except Exception as e:
+        return {"status": "erro", "configurada": True, "detalhe": str(e)}
+
+
 @app.get("/debug/db")
 async def debug_db():
     from .database import get_supabase, sb_run
