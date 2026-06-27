@@ -18,14 +18,18 @@ from .routers.clientes import router as clientes_router
 from .routers.agenda import router as agenda_router
 from .routers.financeiro import router as financeiro_router
 from .services.worker import loop_worker
+from .workers.integracao_worker import loop_integracao
+from .routers.integracoes import router as integracoes_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     worker_task = asyncio.create_task(loop_worker(intervalo_sec=3.0))
+    integracao_task = asyncio.create_task(loop_integracao(intervalo_sec=30.0))
     logger.info("AnalJur API iniciada")
     yield
     worker_task.cancel()
+    integracao_task.cancel()
     logger.info("AnalJur API encerrada")
 
 
@@ -66,6 +70,7 @@ app.include_router(atendimentos_router)
 app.include_router(clientes_router)
 app.include_router(agenda_router)
 app.include_router(financeiro_router)
+app.include_router(integracoes_router)
 
 
 @app.get("/health")

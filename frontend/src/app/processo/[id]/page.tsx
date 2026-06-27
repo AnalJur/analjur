@@ -1080,6 +1080,8 @@ const TIPOS_ANALISE = [
     descricao: "Avalia o conjunto probatório: peso de cada prova, provas faltantes e cerceamento de defesa" },
   { id: "jurisprudencia_citada", label: "⚖ Jurisprudência Citada",
     descricao: "Cataloga todos os precedentes, súmulas e artigos citados no processo com avaliação de qual parte favorece" },
+  { id: "sequencia_argumentativa", label: "⚔ Sequência Argumentativa",
+    descricao: "Mapeia cada petição em ordem cronológica: argumentos, provas, respostas ao adversário, infringências normativas e balanço do debate" },
   { id: "impacto_atualizacao",   label: "Impacto da Atualização" },
   { id: "proximos_passos",       label: "Próximos Passos" },
   { id: "estrategia",            label: "Estratégia" },
@@ -1155,9 +1157,40 @@ function ModalAnalise({ analise, processoId, processo, onUpdate, onClose, onDele
             ? <DiagnosticoRenderer d={analise.conteudo_json} />
             : analise.tipo === "descricao_documentos"
             ? <DescricaoDocumentosRenderer d={analise.conteudo_json} />
+            : analise.tipo === "sequencia_argumentativa"
+            ? <SequenciaArgumentativaRenderer d={analise.conteudo_json} />
             : <AnaliseConteudo conteudo={analise.conteudo_json} />
           }
         </div>
+
+        {/* Jurisprudência pesquisada em tempo real */}
+        {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+        {(analise.conteudo_json as any)?.jurisprudencia_pesquisada?.length > 0 && (
+          <details className="border border-border rounded-xl overflow-hidden">
+            <summary className="bg-surface px-4 py-2.5 text-sm font-semibold text-text-main cursor-pointer select-none">
+              ⚖ Jurisprudência buscada em tempo real ({/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+              {(analise.conteudo_json as any).jurisprudencia_pesquisada.length} resultado(s))
+            </summary>
+            <div className="p-4 space-y-3">
+              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+              {(analise.conteudo_json as any).jurisprudencia_pesquisada.map((j: any, i: number) => (
+                <div key={i} className="border border-border rounded-lg p-3 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-gold">{j.tribunal}</span>
+                    <span className="text-xs text-muted">{j.data_consulta}</span>
+                  </div>
+                  <p className="text-xs font-semibold text-text-main">{j.titulo}</p>
+                  <p className="text-xs text-muted line-clamp-3">{j.trecho}</p>
+                  <a href={j.url} target="_blank" rel="noopener noreferrer"
+                     className="text-xs text-gold hover:underline break-all">
+                    {j.url}
+                  </a>
+                  <p className="text-xs text-muted italic">{j.aviso}</p>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
 
         {/* Ações */}
         {analise.status_revisao === "pendente" && (
@@ -1928,6 +1961,159 @@ function DiagnosticoRenderer({ d }: { d: any }) {
             })}
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+// ── Renderizador: Sequência Argumentativa ─────────────────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function SequenciaArgumentativaRenderer({ d }: { d: any }) {
+  const sequencia: any[] = d?.sequencia ?? []; // eslint-disable-line @typescript-eslint/no-explicit-any
+  const balanco = d?.balanco_debate ?? {};
+  const mapaProvas = d?.mapa_provas ?? {};
+  const infringencias: any[] = d?.infringencias_normativas ?? []; // eslint-disable-line @typescript-eslint/no-explicit-any
+
+  function Section({ title, children }: { title: string; children: React.ReactNode }) {
+    return (
+      <div className="border border-border rounded-xl overflow-hidden">
+        <div className="bg-surface px-4 py-2.5 border-b border-border">
+          <p className="text-sm font-bold text-text-main">{title}</p>
+        </div>
+        <div className="p-4">{children}</div>
+      </div>
+    );
+  }
+
+  function Lista({ items }: { items: string[] }) {
+    if (!items?.length) return <p className="text-xs text-muted">—</p>;
+    return (
+      <ul className="space-y-1">
+        {items.map((it, i) => (
+          <li key={i} className="text-xs text-text-main flex gap-2">
+            <span className="text-gold mt-0.5">•</span>
+            <span>{it}</span>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Linha do tempo das peças */}
+      {sequencia.map((peca: any, idx: number) => ( // eslint-disable-line @typescript-eslint/no-explicit-any
+        <Section key={idx} title={`${idx + 1}. ${peca.peca ?? `Peça ${idx + 1}`}`}>
+          <div className="space-y-3">
+            {peca.data && (
+              <p className="text-xs text-muted">{peca.data} · {peca.tipo ?? ""}</p>
+            )}
+            {peca.argumentos_centrais?.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-text-main mb-1">Argumentos centrais</p>
+                <Lista items={peca.argumentos_centrais} />
+              </div>
+            )}
+            {peca.provas_produzidas_requeridas?.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-text-main mb-1">Provas</p>
+                <Lista items={peca.provas_produzidas_requeridas} />
+              </div>
+            )}
+            {peca.resposta_argumentos_anteriores?.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-text-main mb-1">Responde o adversário</p>
+                <Lista items={peca.resposta_argumentos_anteriores} />
+              </div>
+            )}
+            {peca.decisao_sobre_esta_peca && (
+              <div className="bg-bg rounded-lg p-3">
+                <p className="text-xs font-semibold text-text-main mb-1">Decisão / desfecho</p>
+                <p className="text-xs text-text-main">{peca.decisao_sobre_esta_peca}</p>
+              </div>
+            )}
+            {peca.infringencias_identificadas?.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-red-500 mb-1">Infringências identificadas</p>
+                <Lista items={peca.infringencias_identificadas} />
+              </div>
+            )}
+            {peca.argumentos_sem_resposta?.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-yellow-600 mb-1">Argumentos sem resposta</p>
+                <Lista items={peca.argumentos_sem_resposta} />
+              </div>
+            )}
+          </div>
+        </Section>
+      ))}
+
+      {/* Balanço do debate */}
+      {(balanco.autor?.length > 0 || balanco.reu?.length > 0) && (
+        <Section title="Balanço do Debate">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <p className="text-xs font-semibold text-green-600 mb-2">Autor</p>
+              <Lista items={balanco.autor ?? []} />
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-red-500 mb-2">Réu</p>
+              <Lista items={balanco.reu ?? []} />
+            </div>
+          </div>
+          {balanco.avaliacao_geral && (
+            <div className="mt-3 bg-bg rounded-lg p-3">
+              <p className="text-xs text-text-main">{balanco.avaliacao_geral}</p>
+            </div>
+          )}
+        </Section>
+      )}
+
+      {/* Mapa de provas */}
+      {(mapaProvas.produzidas?.length > 0 || mapaProvas.pendentes?.length > 0 || mapaProvas.indeferidas?.length > 0) && (
+        <Section title="Mapa de Provas">
+          <div className="space-y-3">
+            {mapaProvas.produzidas?.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-green-600 mb-1">Produzidas</p>
+                <Lista items={mapaProvas.produzidas} />
+              </div>
+            )}
+            {mapaProvas.pendentes?.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-yellow-600 mb-1">Pendentes / requeridas</p>
+                <Lista items={mapaProvas.pendentes} />
+              </div>
+            )}
+            {mapaProvas.indeferidas?.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-red-500 mb-1">Indeferidas</p>
+                <Lista items={mapaProvas.indeferidas} />
+              </div>
+            )}
+          </div>
+        </Section>
+      )}
+
+      {/* Infringências normativas */}
+      {infringencias.length > 0 && (
+        <Section title="Infringências Normativas">
+          <div className="space-y-3">
+            {infringencias.map((inf: any, i: number) => ( // eslint-disable-line @typescript-eslint/no-explicit-any
+              <div key={i} className="border border-red-200 rounded-lg p-3 bg-red-50/30">
+                <p className="text-xs font-bold text-red-600">{inf.tipo}</p>
+                <p className="text-xs text-text-main mt-1">{inf.descricao}</p>
+                {inf.norma_violada && (
+                  <p className="text-xs text-muted mt-1">Norma: {inf.norma_violada}</p>
+                )}
+                {inf.recomendacao && (
+                  <p className="text-xs text-gold mt-1">→ {inf.recomendacao}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </Section>
       )}
     </div>
   );

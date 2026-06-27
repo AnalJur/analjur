@@ -189,6 +189,29 @@ ESPECIALIZAÇÃO — DIREITO PENAL / PROCESSUAL PENAL:
 - Lei 12.850/13 (organizações criminosas): colaboração premiada, infiltração, ação controlada.
 - Execução penal: LEP (Lei 7.210/84) — progressão de regime, livramento condicional, remição.""",
 
+    "previdenciario": """\
+
+ESPECIALIZAÇÃO — DIREITO PREVIDENCIÁRIO:
+- RGPS (Lei 8.213/91): benefícios por incapacidade (auxílio-doença art. 59, aposentadoria por \
+  invalidez art. 42), aposentadoria por tempo de contribuição (antes da EC 103/19), por idade, especial.
+- EC 103/2019 (Reforma Previdenciária): regras de transição (pedágio 50%, pedágio 100%, \
+  pontos progressivos), idades mínimas novas (65H/62M), extinção da aposentadoria por tempo puro.
+- Período de carência (art. 25 Lei 8.213/91): 12 meses (doença), 180 meses (maioria dos benefícios).
+- Tempo especial: atividade com agentes nocivos (ruído >85dB, químicos, biológicos) converte para \
+  comum (fator 1,2/1,4/1,8). Decreto 3.048/99 — Anexo IV (agentes). Formulário PPP é prova essencial.
+- LOAS (Lei 8.742/93 — BPC): pessoa com deficiência ou idoso ≥65 anos, renda familiar per capita \
+  ≤ 1/4 SM; STJ admite flexibilização do critério econômico (Tema 185/STJ).
+- Revisão da vida toda: STF RE 1.276.977 (Tema 1.102) — inclui contribuições anteriores ao RGPS \
+  no cálculo do PBC quando mais favorável. Marco temporal: competência 11/2019.
+- Prescrição/decadência: parcelas prescritas em 5 anos (art. 103 par. único Lei 8.213); \
+  revisão de benefício em 10 anos (art. 103 caput — decadência).
+- DER (Data de Entrada do Requerimento) vs. DIB (Data de Início do Benefício): \
+  atraso na concessão gera pagamento retroativo à DER.
+- INSS — competência judicial: JF processa quando há negativa ou omissão do INSS; \
+  JE para LOAS até 60 SM; DPU frequentemente atua como custos legis.
+- Perícia médica: laudo INSS vs. laudo judicial — magistrado não está vinculado ao laudo \
+  administrativo (Súmula 77 TNU). Incapacidade parcial e temporária vs. total e permanente.""",
+
     "administrativo": """\
 
 ESPECIALIZAÇÃO — DIREITO ADMINISTRATIVO:
@@ -223,6 +246,8 @@ def _get_system(tipo_causa: Optional[str] = None) -> str:
             chave = "tributario"
         elif "crimin" in chave or "penal" in chave:
             chave = "criminal"
+        elif "previd" in chave or "previdenci" in chave or "inss" in chave:
+            chave = "previdenciario"
         elif "admin" in chave:
             chave = "administrativo"
         elif "civil" in chave:
